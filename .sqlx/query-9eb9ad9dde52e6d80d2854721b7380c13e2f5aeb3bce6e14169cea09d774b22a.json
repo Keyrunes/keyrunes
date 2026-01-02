@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.user_id, u.external_id, u.email, u.username, u.first_login, u.created_at,\n               COALESCE(array_agg(g.name) FILTER (WHERE g.name IS NOT NULL), ARRAY[]::varchar[]) as \"groups!\"\n        FROM users u\n        LEFT JOIN user_groups ug ON u.user_id = ug.user_id\n        LEFT JOIN groups g ON ug.group_id = g.group_id\n        GROUP BY u.user_id\n        ORDER BY u.created_at DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "external_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "first_login",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "groups!",
+        "type_info": "VarcharArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "9eb9ad9dde52e6d80d2854721b7380c13e2f5aeb3bce6e14169cea09d774b22a"
+}

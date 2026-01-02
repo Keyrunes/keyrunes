@@ -227,9 +227,10 @@ pub async fn list_users(
         Ok(u) => u,
         Err(e) => {
             tracing::error!("Database error in list_users: {}", e);
+            let error_response: Json<serde_json::Value> = Json(serde_json::json!({ "error": e.to_string() }));
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
+                error_response,
             )
                 .into_response();
         }
@@ -619,10 +620,9 @@ async fn get_org_namespace_safe(
             ));
         }
         Err(e) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            ));
+            let error_response: Json<serde_json::Value> =
+                Json(serde_json::json!({ "error": e.to_string() }));
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, error_response));
         }
     };
 

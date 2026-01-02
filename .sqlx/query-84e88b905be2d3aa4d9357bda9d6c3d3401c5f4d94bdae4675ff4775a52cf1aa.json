@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND column_name = 'external_id'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "column_name",
+        "type_info": "Name"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Name",
+        "Name"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "84e88b905be2d3aa4d9357bda9d6c3d3401c5f4d94bdae4675ff4775a52cf1aa"
+}

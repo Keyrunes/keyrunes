@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog') AND table_schema NOT LIKE 'pg_toast%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_schema",
+        "type_info": "Name"
+      },
+      {
+        "ordinal": 1,
+        "name": "table_name",
+        "type_info": "Name"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "2927df7b4aaa349247d8a3c892b6a73a7b2edbc707e6a5577ecb602e597185eb"
+}

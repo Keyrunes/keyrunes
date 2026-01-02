@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT u.user_id, u.external_id, u.email, u.username, u.first_login, u.created_at,\n               array_agg(g.name) as groups\n        FROM users u\n        LEFT JOIN user_groups ug ON u.user_id = ug.user_id\n        LEFT JOIN groups g ON ug.group_id = g.group_id\n        GROUP BY u.user_id\n        ORDER BY u.created_at DESC\n        ",
+  "query": "SELECT user_id, external_id, organization_id, email, username, password_hash, first_login, created_at, updated_at FROM users WHERE username = $1",
   "describe": {
     "columns": [
       {
@@ -15,32 +15,44 @@
       },
       {
         "ordinal": 2,
+        "name": "organization_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
         "name": "email",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "username",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
+        "name": "password_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
         "name": "first_login",
         "type_info": "Bool"
       },
       {
-        "ordinal": 5,
+        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
-        "name": "groups",
-        "type_info": "VarcharArray"
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
       false,
@@ -49,8 +61,10 @@
       false,
       false,
       false,
-      null
+      false,
+      false,
+      false
     ]
   },
-  "hash": "2d5c0aa80bc6ab079d56ae8937c4c6691d01edc8f211245d3006c3125e72df34"
+  "hash": "9f425e486fc964b2d36b0a01ae8eea51fe6acc94257d4d72a3d838618310a697"
 }

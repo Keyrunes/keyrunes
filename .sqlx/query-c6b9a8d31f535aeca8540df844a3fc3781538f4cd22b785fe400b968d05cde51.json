@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT organization_id, external_id, name, description, secret_key, created_at, updated_at FROM organizations ORDER BY name",
+  "query": "SELECT organization_id, external_id, name, description, secret_key, namespace, base_url, created_at, updated_at FROM organizations ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -30,11 +30,21 @@
       },
       {
         "ordinal": 5,
+        "name": "namespace",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "base_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 8,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -49,8 +59,10 @@
       true,
       false,
       false,
+      true,
+      false,
       false
     ]
   },
-  "hash": "dbf0b38ee94b57e29c1219e6f9a089e7445919697b57a9eb9997b40503a57713"
+  "hash": "c6b9a8d31f535aeca8540df844a3fc3781538f4cd22b785fe400b968d05cde51"
 }
