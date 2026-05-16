@@ -13,7 +13,7 @@
 - *(ci)* Fix audit exemptions and code formatting
 - Update dependencies and resolve 5 security advisories
 - *(tests)* Remove hurl files from cargo tests directory
-## [0.2.2] - 2026-02-27
+## [0.2.0.1] - 2026-02-27
 
 ### 🐛 Bug Fixes
 

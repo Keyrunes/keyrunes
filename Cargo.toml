@@ -12,10 +12,10 @@ serde_json = "1.0"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "macros", "postgres", "uuid", "chrono", "tls-rustls", "json", "migrate"] }
 tera = "1.20"
 chrono = { version = "0.4", features = ["serde"] }
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 tracing = "0.1"
 clap = { version = "4", features = ["derive"] }
-argon2 = "0.5.3"
+argon2 = "0.5"
 password-hash = "0.5"
 uuid = { version = "1", features = ["serde", "v4"] }
 anyhow = "1.0"
@@ -23,26 +23,26 @@ async-trait = "0.1"
 rand = "0.9.2"
 regex = "1"
 tokio-stream = "0.1"
-tower-http = { version = "0.6.7", features = ["fs", "cors"] }
-url = "2.5.4"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+url = "2.5"
 dotenvy = "0.15.7"
-tracing-subscriber = {  version = "0.3.20", features = ["env-filter"]}
-serde_with = "3.14.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_with = "3.20"
 hex = "0.4.3"
-futures = "0.3.31"
+futures = "0.3"
 secrecy = { version = "0.10.3", features = ["serde"] }
-tower = "0.5.2"
+tower = "0.5"
 lettre = { version = "0.11", features = ["tokio1", "tokio1-native-tls", "smtp-transport", "builder"] }
 josekit = "0.10.3"
-utoipa = { version = "5.4.0", features = ["axum_extras", "uuid", "chrono"] }
+utoipa = { version = "5.5", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]
 test-case = "3.3.1"
 rstest = "0.26.1"
-proptest = "1.7.0"
-tokio-test = "0.4.4"
+proptest = "1.11"
+tokio-test = "0.4"
 fake = { version = "4.4", features = ["derive", "chrono", "uuid"] }
-criterion = { version = "0.7", features = ["html_reports"] }
-serial_test = "3.2.0"
+criterion = { version = "0.8", features = ["html_reports"] }
+serial_test = "3.4"
 goose = "0.18.1"
