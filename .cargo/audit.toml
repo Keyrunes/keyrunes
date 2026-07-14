@@ -1,4 +1,18 @@
 [advisories]
 ignore = [
+    # sqlx: TLS certificate verification disabled in debug builds (intentional for local dev)
     "RUSTSEC-2023-0071",
+
+    # scc: RUSTSEC-2026-0205 — unsoundness in Array::insert if compare fn panics.
+    # Fix available in scc >= 3.8.4, but serial_test 3.4.0 pins scc = "2" (not yet stable).
+    # KeyRunes does not use scc directly; only via serial_test dev-dependency.
+    # Re-check: 2026-10-14 (90 days) — remove if serial_test 3.x stable.
+    "RUSTSEC-2026-0205",
 ]
+
+# spin yanked warning: 0.9.8 yanked but still pulled in by lazy_static 1.5.0 and flume 0.11.x.
+# Fix available in spin 0.12.2 (not yanked), but upstream crates not yet compatible.
+# KeyRunes does not use spin directly; only via tera, goose dev-dependency.
+# Re-check: 2026-10-14 (90 days) — remove if lazy_static/flume bump spin.
+[yanked]
+enabled = false
