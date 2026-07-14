@@ -84,17 +84,17 @@ impl MockRepo {
 impl UserRepository for MockRepo {
     async fn find_by_email(&self, email: &str, _namespace: &str) -> Result<Option<User>> {
         let users = self.users.lock().unwrap();
-        Ok(users.iter().cloned().find(|u| u.email == email))
+        Ok(users.iter().find(|u| u.email == email).cloned())
     }
 
     async fn find_by_username(&self, username: &str, _namespace: &str) -> Result<Option<User>> {
         let users = self.users.lock().unwrap();
-        Ok(users.iter().cloned().find(|u| u.username == username))
+        Ok(users.iter().find(|u| u.username == username).cloned())
     }
 
     async fn find_by_id(&self, user_id: i64, _namespace: &str) -> Result<Option<User>> {
         let users = self.users.lock().unwrap();
-        Ok(users.iter().cloned().find(|u| u.user_id == user_id))
+        Ok(users.iter().find(|u| u.user_id == user_id).cloned())
     }
 
     async fn insert_user(&self, new_user: NewUser, _namespace: &str) -> Result<User> {
@@ -167,8 +167,8 @@ impl UserRepository for MockRepo {
             .map(|ug| {
                 groups
                     .iter()
+                    .find(|&g| ug.group_id == g.group_id)
                     .cloned()
-                    .find(|g| ug.group_id == g.group_id)
                     .unwrap()
             })
             .collect();
@@ -251,13 +251,13 @@ impl keyrunes::repository::GroupRepository for MockGroupRepository {
         _namespace: &str,
     ) -> Result<Option<Group>> {
         let groups = self.group_store.lock().unwrap();
-        let group = groups.iter().cloned().find(|g| g.name == name);
+        let group = groups.iter().find(|g| g.name == name).cloned();
         Ok(group)
     }
 
     async fn find_by_id(&self, group_id: i64, _namespace: &str) -> Result<Option<Group>> {
         let groups = self.group_store.lock().unwrap();
-        let group = groups.iter().cloned().find(|g| g.group_id == group_id);
+        let group = groups.iter().find(|g| g.group_id == group_id).cloned();
         Ok(group)
     }
 
@@ -522,7 +522,7 @@ fn helper_service() -> UserServiceType {
     let settings_repo = Arc::new(MockSettingsRepository::new());
     let settings_service = Arc::new(SettingsService::new(settings_repo));
 
-    let service = UserService::new(
+    UserService::new(
         user_repo,
         group_repo,
         Arc::new(MockOrganizationRepository),
@@ -530,9 +530,7 @@ fn helper_service() -> UserServiceType {
         jwt_service,
         settings_service,
         None,
-    );
-
-    service
+    )
 }
 
 #[tokio::test]

@@ -72,7 +72,7 @@ jobs:
         components: clippy
 
     - name: Run Clippy
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --all-targets -- -D warnings
 
   fmt:
     name: Formatting

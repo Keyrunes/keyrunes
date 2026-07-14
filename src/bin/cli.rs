@@ -1053,9 +1053,7 @@ mod tests {
         );
 
         // Act
-        let user = service
-            .find_user_by_email(&EMAIL.to_string(), DEFAULT_NAMESPACE)
-            .await;
+        let user = service.find_user_by_email(EMAIL, DEFAULT_NAMESPACE).await;
 
         // Assert
         assert!(user.is_some());
@@ -1098,7 +1096,7 @@ mod tests {
 
         // Act
         let user = service
-            .find_user_by_email(&"nonexistent@example.com".to_string(), DEFAULT_NAMESPACE)
+            .find_user_by_email("nonexistent@example.com", DEFAULT_NAMESPACE)
             .await;
 
         // Assert
@@ -1130,7 +1128,7 @@ mod tests {
 
         // Act
         let user = service
-            .find_user_by_username(&USERNAME.to_string(), DEFAULT_NAMESPACE)
+            .find_user_by_username(USERNAME, DEFAULT_NAMESPACE)
             .await;
 
         // Assert
@@ -1210,7 +1208,7 @@ mod tests {
 
         // Act
         let user = service
-            .find_user_by_username(&"nonexistent".to_string(), DEFAULT_NAMESPACE)
+            .find_user_by_username("nonexistent", DEFAULT_NAMESPACE)
             .await;
 
         // Assert

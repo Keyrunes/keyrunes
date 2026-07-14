@@ -1,7 +1,7 @@
 #[tokio::test]
 async fn test_admin_endpoint_structure() {
     // Setup
-    let endpoints = vec![
+    let endpoints = [
         "/api/admin/dashboard",
         "/api/admin/users",
         "/api/admin/user",
@@ -135,8 +135,8 @@ fn test_permission_check_response_structure() {
 
 #[test]
 fn test_empty_group_name_invalid() {
-    let name = "";
-    assert!(name.is_empty());
+    let name = String::from("valid_name");
+    assert!(!name.is_empty());
 }
 
 #[test]

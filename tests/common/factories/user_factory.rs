@@ -15,7 +15,6 @@ pub struct UserFactory {
 }
 
 #[allow(dead_code)]
-#[allow(dead_code)]
 impl UserFactory {
     pub fn create_user(
         user_id: i64,
