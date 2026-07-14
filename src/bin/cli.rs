@@ -276,7 +276,7 @@ async fn main() -> anyhow::Result<()> {
                 .await;
 
             if res.is_none() {
-                return Err(anyhow::anyhow!("User {} not found", &username));
+                return Err(anyhow::anyhow!("User {} not found", username));
             }
 
             let user = res.unwrap();
@@ -346,7 +346,7 @@ async fn main() -> anyhow::Result<()> {
             let user = service.find_user_by_email(&email, DEFAULT_NAMESPACE).await;
 
             if user.is_none() {
-                return Err(anyhow::anyhow!("User with email {} not found", &email));
+                return Err(anyhow::anyhow!("User with email {} not found", email));
             }
 
             let user = user.unwrap();
