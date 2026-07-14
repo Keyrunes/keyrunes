@@ -108,7 +108,7 @@ pub async fn register_post(
         Err(e) => {
             let mut ctx = Context::new();
             ctx.insert("title", "Register");
-            ctx.insert("error", &format!("{}", e));
+            ctx.insert("error", &format!("{e}"));
             let body = tmpl.render("register.html", &ctx).unwrap();
             (StatusCode::BAD_REQUEST, Html(body)).into_response()
         }
@@ -158,7 +158,7 @@ pub async fn login_post(
         Err(e) => {
             let mut ctx = Context::new();
             ctx.insert("title", "Login");
-            ctx.insert("error", &format!("{}", e));
+            ctx.insert("error", &format!("{e}"));
             let body = tmpl.render("login.html", &ctx).unwrap();
             (StatusCode::UNAUTHORIZED, Html(body)).into_response()
         }
@@ -230,7 +230,7 @@ pub async fn change_password_post(
         Err(e) => {
             let mut ctx = Context::new();
             ctx.insert("title", "Change Password");
-            ctx.insert("error", &format!("{}", e));
+            ctx.insert("error", &format!("{e}"));
             let body = tmpl.render("change_password.html", &ctx).unwrap();
             (StatusCode::BAD_REQUEST, Html(body)).into_response()
         }
