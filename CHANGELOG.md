@@ -1,4 +1,24 @@
-## [unreleased]
+## [0.2.2] - 2026-07-14
+
+### 🐛 Bug Fixes
+
+- Bump lettre to 0.11.22 (RUSTSEC-2026-0141)
+
+### 💼 Other
+
+- Update libraries
+- Trigger deploy
+
+### 🎨 Styling
+
+- *(services)* Use Option::filter instead of manual pattern
+- *(cli)* Remove redundant borrows in anyhow! format strings
+
+### ⚙️ Miscellaneous Tasks
+
+- *(ci)* Pin rust toolchain to 1.97.0 and lint all targets
+- *(audit)* Exempt scc RUSTSEC-2026-0205 + spin yanked (deferred upstream)
+## [0.2.1] - 2026-04-28
 
 ### 🚀 Features
 
@@ -6,21 +26,11 @@
 
 ### 🐛 Bug Fixes
 
-- Fix delete users
-
-### ⚙️ Miscellaneous Tasks
-
-- *(ci)* Fix audit exemptions and code formatting
-- Update dependencies and resolve 5 security advisories
-- *(tests)* Remove hurl files from cargo tests directory
-## [0.2.0.1] - 2026-02-27
-
-### 🐛 Bug Fixes
-
 - Typo error
 - Typing error in text - pull request #34 from Yummy-Yums/main
 - *(services)* Implement auto-healing for default groups and fix broken tests
 - Problem with register new users with default groups
+- Fix delete users
 
 ### 💼 Other
 
@@ -35,6 +45,10 @@
 
 - Add changelogs
 - Fix app.json for dokku
+- *(ci)* Fix audit exemptions and code formatting
+- Update dependencies and resolve 5 security advisories
+- *(tests)* Remove hurl files from cargo tests directory
+- Update Changelog and fixed version in Cargo.toml
 ## [0.2.0] - 2026-01-02
 
 ### 🚀 Features
