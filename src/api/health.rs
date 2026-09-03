@@ -36,6 +36,30 @@ pub fn init_health_check() {
     START_TIME.set(SystemTime::now()).ok();
 }
 
+/// Reduces the individual component reports to a single verdict.
+///
+/// Extracted out of [`health_check`] so the decision can be exercised without a
+/// live database connection.
+fn overall_status(db_health: &DatabaseHealth, services_health: &ServicesHealth) -> &'static str {
+    if db_health.status == "healthy"
+        && services_health.jwt_service == "healthy"
+        && services_health.password_hashing == "healthy"
+    {
+        "healthy"
+    } else {
+        "unhealthy"
+    }
+}
+
+/// Maps the overall verdict onto the HTTP status the probe answers with.
+fn status_code_for(overall_status: &str) -> StatusCode {
+    if overall_status == "healthy" {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/health",
@@ -56,14 +80,7 @@ pub async fn health_check(Extension(pool): Extension<PgPool>) -> impl IntoRespon
 
     let services_health = check_services_health();
 
-    let overall_status = if db_health.status == "healthy"
-        && services_health.jwt_service == "healthy"
-        && services_health.password_hashing == "healthy"
-    {
-        "healthy"
-    } else {
-        "unhealthy"
-    };
+    let overall_status = overall_status(&db_health, &services_health);
 
     let response = HealthResponse {
         status: overall_status.to_string(),
@@ -74,11 +91,7 @@ pub async fn health_check(Extension(pool): Extension<PgPool>) -> impl IntoRespon
         services: services_health,
     };
 
-    let status_code = if overall_status == "healthy" {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
+    let status_code = status_code_for(overall_status);
 
     (status_code, Json(response))
 }
@@ -247,5 +260,87 @@ mod tests {
         let json = serde_json::to_string(&health).unwrap();
         assert!(json.contains("healthy"));
         assert!(json.contains("0.1.0"));
+    }
+
+    fn db(status: &str) -> DatabaseHealth {
+        DatabaseHealth {
+            status: status.to_string(),
+            response_time_ms: Some(1),
+            active_connections: Some(1),
+        }
+    }
+
+    fn services(jwt: &str, hashing: &str) -> ServicesHealth {
+        ServicesHealth {
+            jwt_service: jwt.to_string(),
+            password_hashing: hashing.to_string(),
+        }
+    }
+
+    #[test]
+    fn everything_healthy_reports_healthy() {
+        assert_eq!(
+            overall_status(&db("healthy"), &services("healthy", "healthy")),
+            "healthy"
+        );
+    }
+
+    #[test]
+    fn an_unhealthy_database_alone_makes_the_system_unhealthy() {
+        assert_eq!(
+            overall_status(&db("unhealthy"), &services("healthy", "healthy")),
+            "unhealthy"
+        );
+    }
+
+    #[test]
+    fn an_unhealthy_jwt_service_alone_makes_the_system_unhealthy() {
+        assert_eq!(
+            overall_status(&db("healthy"), &services("unhealthy", "healthy")),
+            "unhealthy"
+        );
+    }
+
+    #[test]
+    fn unhealthy_password_hashing_alone_makes_the_system_unhealthy() {
+        assert_eq!(
+            overall_status(&db("healthy"), &services("healthy", "unhealthy")),
+            "unhealthy"
+        );
+    }
+
+    #[test]
+    fn every_component_unhealthy_reports_unhealthy() {
+        assert_eq!(
+            overall_status(&db("unhealthy"), &services("unhealthy", "unhealthy")),
+            "unhealthy"
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_component_status_is_not_treated_as_healthy() {
+        assert_eq!(
+            overall_status(&db("degraded"), &services("healthy", "healthy")),
+            "unhealthy"
+        );
+    }
+
+    #[test]
+    fn healthy_answers_200_and_anything_else_answers_503() {
+        assert_eq!(status_code_for("healthy"), StatusCode::OK);
+        assert_eq!(
+            status_code_for("unhealthy"),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(status_code_for(""), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn init_health_check_records_the_process_start_time() {
+        init_health_check();
+        assert!(
+            START_TIME.get().is_some(),
+            "the uptime clock must be armed after init"
+        );
     }
 }

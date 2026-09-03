@@ -220,6 +220,7 @@ pub async fn handler_500() -> impl IntoResponse {
 mod tests {
     use super::*;
     use axum::body::Body;
+    use axum::http::HeaderValue;
     use axum::http::Request as HttpRequest;
 
     #[tokio::test]
@@ -260,5 +261,115 @@ mod tests {
         let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
 
         assert!(body_str.contains("not found") || body_str.contains("404"));
+    }
+
+    fn accept(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("accept", value.parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn a_json_accept_header_asks_for_json() {
+        assert!(wants_json(&accept("application/json")));
+        assert!(wants_json(&accept("application/json;q=0.9")));
+        assert!(wants_json(&accept("text/html, application/json")));
+    }
+
+    #[test]
+    fn a_vendor_json_accept_header_asks_for_json() {
+        assert!(wants_json(&accept("application/vnd.api*/json")));
+    }
+
+    #[test]
+    fn a_browser_accept_header_does_not_ask_for_json() {
+        assert!(!wants_json(&accept("text/html,application/xhtml+xml")));
+        assert!(!wants_json(&accept("*/*")));
+    }
+
+    #[test]
+    fn a_missing_or_unreadable_accept_header_does_not_ask_for_json() {
+        assert!(!wants_json(&HeaderMap::new()));
+
+        let mut headers = HeaderMap::new();
+        // Bytes that are not valid UTF-8 must not be mistaken for a JSON request.
+        headers.insert("accept", HeaderValue::from_bytes(b"\xff\xfe").unwrap());
+        assert!(!wants_json(&headers));
+    }
+
+    #[test]
+    fn only_the_api_prefix_counts_as_an_api_route() {
+        assert!(is_api_route("/api/users"));
+        assert!(is_api_route("/api/"));
+
+        assert!(!is_api_route("/api"));
+        assert!(!is_api_route("/"));
+        assert!(!is_api_route("/login"));
+        assert!(!is_api_route("/docs/api/users"));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_api_route_answers_json() {
+        let req = HttpRequest::builder()
+            .uri("/api/nope")
+            .body(Body::empty())
+            .unwrap();
+        let response = handler_404(req).await.into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            content_type.contains("application/json"),
+            "expected JSON, got {content_type}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_page_answers_html_to_a_browser() {
+        let req = HttpRequest::builder()
+            .uri("/nope")
+            .header("accept", "text/html")
+            .body(Body::empty())
+            .unwrap();
+        let response = handler_404(req).await.into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            content_type.contains("text/html"),
+            "expected HTML, got {content_type}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_page_answers_json_when_the_client_asks_for_it() {
+        let req = HttpRequest::builder()
+            .uri("/nope")
+            .header("accept", "application/json")
+            .body(Body::empty())
+            .unwrap();
+        let response = handler_404(req).await.into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            content_type.contains("application/json"),
+            "expected JSON, got {content_type}"
+        );
     }
 }

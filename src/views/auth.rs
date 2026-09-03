@@ -477,4 +477,50 @@ mod tests {
         let token = extract_bearer_token_from_cookie_or_header(&headers);
         assert_eq!(token, None);
     }
+
+    #[test]
+    fn registration_defaults_to_the_public_namespace() {
+        assert_eq!(default_namespace(), "public");
+    }
+
+    #[test]
+    fn a_registration_form_without_a_namespace_lands_in_public() {
+        let form: RegisterForm = serde_json::from_str(
+            r#"{"email":"a@example.com","username":"a","password":"p","first_login":true}"#,
+        )
+        .expect("the namespace field is optional");
+
+        assert_eq!(form.namespace, "public");
+    }
+
+    #[test]
+    fn an_explicit_namespace_on_a_registration_form_is_kept() {
+        let form: RegisterForm = serde_json::from_str(
+            r#"{"email":"a@example.com","username":"a","password":"p","first_login":true,"namespace":"tenant-a"}"#,
+        )
+        .expect("an explicit namespace must parse");
+
+        assert_eq!(form.namespace, "tenant-a");
+    }
+
+    #[test]
+    fn a_bearer_header_with_no_token_after_it_yields_nothing() {
+        let mut headers = HeaderMap::new();
+        // Exactly "Bearer " and nothing else: the scheme is there but the
+        // credential is empty, so there is no token to extract.
+        headers.insert("authorization", HeaderValue::from_static("Bearer "));
+
+        assert_eq!(extract_bearer_token_from_cookie_or_header(&headers), None);
+    }
+
+    #[test]
+    fn a_one_character_bearer_token_is_still_extracted() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer x"));
+
+        assert_eq!(
+            extract_bearer_token_from_cookie_or_header(&headers),
+            Some("x".to_string())
+        );
+    }
 }

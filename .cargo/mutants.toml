@@ -1,0 +1,22 @@
+# cargo-mutants configuration.
+#
+# `mutagen` (llogiq/mutagen) is unmaintained and nightly-only; cargo-mutants is
+# its de-facto successor and runs on stable.
+#
+# Scope: the integration suites under `tests/` need a live PostgreSQL, so the
+# mutation run uses only the DB-free targets (`--lib` plus the JWT property
+# suite). Mutating repository/service code that those targets cannot reach
+# would report survivors that say nothing about test quality, so the examined
+# set is restricted to the modules the DB-free tests actually cover.
+examine_globs = [
+    "src/services/jwt_service.rs",
+    "src/handler/errors.rs",
+    "src/handler/logging.rs",
+    "src/views/auth.rs",
+    "src/api/health.rs",
+]
+
+additional_cargo_test_args = ["--lib", "--test", "jwt_property_test"]
+
+timeout_multiplier = 5.0
+minimum_test_timeout = 60
