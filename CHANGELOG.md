@@ -1,3 +1,13 @@
+## [0.3.0] - 2026-09-03
+
+### 🚀 Features
+
+- *(tests)* Add JWT property/fuzz suite and cover the untested pure logic
+
+### 📚 Documentation
+
+- *(changelog)* Add v0.2.2 release section (moved tag to dd9dadc)
+
 ## [0.2.2] - 2026-07-14
 
 ### 🐛 Bug Fixes
