@@ -464,4 +464,281 @@ mod tests {
             "{auth:?} blocked the cookie"
         );
     }
+
+    // ---------------------------------------------------------------------
+    // The middleware gates themselves.
+    //
+    // Until these existed, `require_auth`, `optional_auth` and
+    // `require_superadmin` could each be replaced with a no-op and the suite
+    // stayed green, and inverting the comparison in `require_groups` went
+    // unnoticed. They are the gates on every protected route, so each one is
+    // driven end to end through a router.
+    // ---------------------------------------------------------------------
+
+    use axum::Router;
+    use axum::body::Body as AxumBody;
+    use axum::http::{Request as HttpRequest, StatusCode};
+    use axum::routing::get;
+    use tower::ServiceExt as _;
+
+    const TEST_SECRET: &str = "0123456789ABCDEF0123456789ABCDEF";
+
+    fn jwt_service() -> Arc<JwtService> {
+        Arc::new(JwtService::new(TEST_SECRET))
+    }
+
+    fn token_for(groups: &[&str]) -> String {
+        jwt_service()
+            .generate_token(
+                7,
+                "user@example.com",
+                "user",
+                groups.iter().map(|g| (*g).to_string()).collect(),
+                "test_ns",
+                1,
+            )
+            .unwrap()
+    }
+
+    /// Reports what the middleware put in the request extensions, so a gate
+    /// that lets a request through without identifying it is still a failure.
+    async fn echo_user(user: Option<Extension<AuthenticatedUser>>) -> String {
+        match user {
+            Some(Extension(user)) => format!("{}:{}", user.user_id, user.groups.join(",")),
+            None => "anonymous".to_string(),
+        }
+    }
+
+    fn blocking_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build a test runtime")
+    }
+
+    /// Send one request through `router` and return its status and body.
+    fn send(router: Router, authorization: Option<&str>) -> (StatusCode, String) {
+        let mut builder = HttpRequest::builder().uri("/protected");
+        if let Some(value) = authorization {
+            builder = builder.header("authorization", value);
+        }
+        let request = builder.body(AxumBody::empty()).unwrap();
+
+        blocking_runtime().block_on(async move {
+            let response = router.oneshot(request).await.unwrap();
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            (status, String::from_utf8(body.to_vec()).unwrap())
+        })
+    }
+
+    fn router_with_require_auth() -> Router {
+        Router::new()
+            .route("/protected", get(echo_user))
+            .layer(axum::middleware::from_fn(require_auth))
+            .layer(Extension(jwt_service()))
+    }
+
+    #[test]
+    fn require_auth_rejects_a_request_with_no_token() {
+        let (status, _) = send(router_with_require_auth(), None);
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn require_auth_rejects_a_token_signed_with_another_secret() {
+        let foreign = JwtService::new("FEDCBA9876543210FEDCBA9876543210")
+            .generate_token(7, "user@example.com", "user", vec![], "test_ns", 1)
+            .unwrap();
+
+        let (status, _) = send(
+            router_with_require_auth(),
+            Some(&format!("Bearer {foreign}")),
+        );
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn require_auth_admits_a_valid_token_and_identifies_the_caller() {
+        let token = token_for(&[USERS_GROUP]);
+
+        let (status, body) = send(router_with_require_auth(), Some(&format!("Bearer {token}")));
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            format!("7:{USERS_GROUP}"),
+            "the route ran without being told who the caller is"
+        );
+    }
+
+    #[test]
+    fn optional_auth_lets_an_anonymous_request_through_unidentified() {
+        let router = Router::new()
+            .route("/protected", get(echo_user))
+            .layer(axum::middleware::from_fn(optional_auth))
+            .layer(Extension(jwt_service()));
+
+        let (status, body) = send(router, None);
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "anonymous");
+    }
+
+    #[test]
+    fn optional_auth_identifies_a_caller_that_does_present_a_token() {
+        let token = token_for(&[USERS_GROUP]);
+        let router = Router::new()
+            .route("/protected", get(echo_user))
+            .layer(axum::middleware::from_fn(optional_auth))
+            .layer(Extension(jwt_service()));
+
+        let (status, body) = send(router, Some(&format!("Bearer {token}")));
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, format!("7:{USERS_GROUP}"));
+    }
+
+    /// `require_superadmin` runs after `require_auth`, so the token decides
+    /// which groups reach it.
+    fn router_with_require_superadmin() -> Router {
+        Router::new()
+            .route("/protected", get(echo_user))
+            .layer(axum::middleware::from_fn(require_superadmin))
+            .layer(axum::middleware::from_fn(require_auth))
+            .layer(Extension(jwt_service()))
+    }
+
+    #[test]
+    fn require_superadmin_refuses_an_ordinary_user() {
+        let token = token_for(&[USERS_GROUP]);
+        let (status, _) = send(
+            router_with_require_superadmin(),
+            Some(&format!("Bearer {token}")),
+        );
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn require_superadmin_admits_both_privileged_groups() {
+        for group in [SUPERADMIN_GROUP, ADMIN_GROUP] {
+            let token = token_for(&[group]);
+            let (status, _) = send(
+                router_with_require_superadmin(),
+                Some(&format!("Bearer {token}")),
+            );
+            assert_eq!(status, StatusCode::OK, "{group} was refused");
+        }
+    }
+
+    #[test]
+    fn require_superadmin_refuses_a_group_that_merely_looks_privileged() {
+        let token = token_for(&["administrators"]);
+        let (status, _) = send(
+            router_with_require_superadmin(),
+            Some(&format!("Bearer {token}")),
+        );
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    fn router_requiring_groups(required: Vec<String>) -> Router {
+        Router::new()
+            .route("/protected", get(echo_user))
+            .layer(axum::middleware::from_fn(require_groups(required)))
+            .layer(axum::middleware::from_fn(require_auth))
+            .layer(Extension(jwt_service()))
+    }
+
+    #[test]
+    fn require_groups_admits_a_caller_holding_one_of_the_required_groups() {
+        let token = token_for(&["editors", USERS_GROUP]);
+        let (status, _) = send(
+            router_requiring_groups(vec!["editors".to_string()]),
+            Some(&format!("Bearer {token}")),
+        );
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[test]
+    fn require_groups_refuses_a_caller_holding_none_of_them() {
+        let token = token_for(&[USERS_GROUP]);
+        let (status, _) = send(
+            router_requiring_groups(vec!["editors".to_string()]),
+            Some(&format!("Bearer {token}")),
+        );
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// The membership test must be equality, not a substring or an inversion.
+    #[test]
+    fn require_groups_refuses_a_near_miss_on_the_group_name() {
+        let token = token_for(&["editor"]);
+        let (status, _) = send(
+            router_requiring_groups(vec!["editors".to_string()]),
+            Some(&format!("Bearer {token}")),
+        );
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// Drive `require_org_key_or_superadmin` with a pool that is never
+    /// connected to.
+    ///
+    /// The middleware needs an `OrganizationService` in its extensions, but
+    /// the rejection paths below answer before any query is issued, so a
+    /// lazily-connected pool is enough and the tests stay database-free. The
+    /// pool is built inside the runtime because sqlx spawns its reaper task on
+    /// construction.
+    fn send_to_org_gate(authorization: Option<&str>, org_key: Option<&str>) -> StatusCode {
+        let mut builder = HttpRequest::builder().uri("/protected");
+        if let Some(value) = authorization {
+            builder = builder.header("authorization", value);
+        }
+        if let Some(value) = org_key {
+            builder = builder.header("X-Organization-Key", value);
+        }
+        let request = builder.body(AxumBody::empty()).unwrap();
+
+        blocking_runtime().block_on(async move {
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+                .expect("a lazy pool never connects");
+            let org_service = Arc::new(OrganizationService::new(
+                Arc::new(PgOrganizationRepository::new(pool.clone())),
+                Arc::new(PgGroupRepository::new(pool)),
+            ));
+
+            let router = Router::new()
+                .route("/protected", get(echo_user))
+                .layer(axum::middleware::from_fn(require_org_key_or_superadmin))
+                .layer(Extension(jwt_service()))
+                .layer(Extension(org_service));
+
+            router.oneshot(request).await.unwrap().status()
+        })
+    }
+
+    #[test]
+    fn org_key_or_superadmin_refuses_a_request_with_neither() {
+        assert_eq!(send_to_org_gate(None, None), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn org_key_or_superadmin_refuses_a_key_that_is_not_a_uuid() {
+        assert_eq!(
+            send_to_org_gate(None, Some("not-a-uuid")),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[test]
+    fn org_key_or_superadmin_refuses_a_non_superadmin_token() {
+        let token = token_for(&[ADMIN_GROUP]);
+        assert_eq!(
+            send_to_org_gate(Some(&format!("Bearer {token}")), None),
+            StatusCode::UNAUTHORIZED,
+            "only superadmin may stand in for an organization key"
+        );
+    }
 }
