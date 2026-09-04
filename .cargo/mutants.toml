@@ -42,3 +42,18 @@ additional_cargo_test_args = [
 
 timeout_multiplier = 5.0
 minimum_test_timeout = 60
+
+# Known survivors, and why each is left alone. Re-check this list when the
+# score changes: a new survivor is a real gap until shown otherwise.
+#
+#   api/health.rs  test_jwt_service, test_password_hashing -> Ok(())
+#       Self-checks whose only observable behaviour on the happy path is the
+#       Ok they return, so a stub is indistinguishable from the real probe
+#       without injecting a failing dependency.
+#   handler/logging.rs  init_logging -> ()
+#       Configures a global subscriber; asserting it would mean reaching into
+#       process-wide state that the rest of the suite shares.
+#   views/auth.rs  != -> == in change_password_post
+#       The password-confirmation check. Driving the handler needs a live
+#       UserService, and extracting the comparison into a helper would only
+#       produce a test that asserts `==` compares.
