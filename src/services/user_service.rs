@@ -264,6 +264,12 @@ impl<
 
         let user_count = self.user_repo.count_users(namespace).await?;
         let groups = if let Some(g) = req.group {
+            // `register` is reachable from the public routes, so a caller-named
+            // group is untrusted input: without this check anyone could post
+            // `{"group": "superadmin"}` and be granted it.
+            if crate::constants::is_privileged_group(&g) {
+                return Err(anyhow!("group '{}' cannot be requested at registration", g));
+            }
             Some(vec![g])
         } else if user_count == 0 {
             if namespace == crate::constants::DEFAULT_NAMESPACE {

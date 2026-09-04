@@ -1034,3 +1034,149 @@ async fn test_register_first_user_in_namespace() {
     assert!(res2.user.groups.contains(&"users".to_string()));
     assert!(!res2.user.groups.contains(&"superadmin".to_string()));
 }
+
+// ---------------------------------------------------------------------------
+// Public registration must not hand out administrative groups.
+//
+// `/register` and `/api/register` are unauthenticated and accept a `group`
+// field, which group resolution looks up by name. Nothing else stands between
+// that field and a membership row, so these tests pin the boundary.
+// ---------------------------------------------------------------------------
+
+fn registration_service() -> (UserServiceType, GroupStore, UserGroupStore) {
+    let (group_store, user_groups_store) = create_stores();
+    let user_repo = Arc::new(MockRepo::new(
+        Arc::clone(&group_store),
+        Arc::clone(&user_groups_store),
+    ));
+    let group_repo = Arc::new(MockGroupRepository::new(
+        Arc::clone(&group_store),
+        Arc::clone(&user_groups_store),
+    ));
+    let jwt_service = Arc::new(keyrunes::services::jwt_service::JwtService::new(
+        "0123456789ABCDEF0123456789ABCDEF",
+    ));
+    let settings_service = Arc::new(SettingsService::new(
+        Arc::new(MockSettingsRepository::new()),
+    ));
+
+    let service = UserService::new(
+        user_repo,
+        group_repo,
+        Arc::new(MockOrganizationRepository),
+        Arc::new(MockPasswordResetRepository),
+        jwt_service,
+        settings_service,
+        None,
+    );
+
+    (service, group_store, user_groups_store)
+}
+
+fn registration_asking_for(group: Option<&str>) -> RegisterRequest {
+    let user_data = UserFactory::build();
+    RegisterRequest {
+        email: user_data.email,
+        username: user_data.username,
+        password: "Password123".to_string(),
+        first_login: Some(false),
+        organization_id: None,
+        group: group.map(str::to_string),
+    }
+}
+
+#[tokio::test]
+async fn public_registration_cannot_grant_itself_a_privileged_group() {
+    // Every spelling a caller might reach for, including the ones that would
+    // slip past an exact-match check.
+    for requested in [
+        "superadmin",
+        "admin",
+        "SuperAdmin",
+        "ADMIN",
+        "  superadmin  ",
+    ] {
+        let (service, _groups, _user_groups) = registration_service();
+
+        let result = service
+            .register(registration_asking_for(Some(requested)), DEFAULT_NAMESPACE)
+            .await;
+
+        let error = result
+            .err()
+            .unwrap_or_else(|| panic!("registration asking for {requested:?} was accepted"));
+        assert!(
+            error.to_string().contains("cannot be requested"),
+            "unexpected rejection reason for {requested:?}: {error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_rejected_registration_creates_no_user_at_all() {
+    // A refusal must not leave a half-created account behind that could then
+    // be granted the group by other means.
+    let (service, _groups, user_groups) = registration_service();
+    let req = registration_asking_for(Some("superadmin"));
+
+    assert!(
+        service
+            .register(req.clone(), DEFAULT_NAMESPACE)
+            .await
+            .is_err()
+    );
+
+    assert!(
+        service
+            .find_user_by_username(&req.username, DEFAULT_NAMESPACE)
+            .await
+            .is_none(),
+        "the refused registration still created the user"
+    );
+    assert!(
+        user_groups.lock().unwrap().is_empty(),
+        "the refused registration still assigned a group"
+    );
+}
+
+#[tokio::test]
+async fn public_registration_still_accepts_ordinary_groups() {
+    // The check must be narrow: application groups are what the field is for.
+    let (service, _groups, _user_groups) = registration_service();
+
+    let response = service
+        .register(
+            registration_asking_for(Some(keyrunes::constants::USERS_GROUP)),
+            DEFAULT_NAMESPACE,
+        )
+        .await
+        .expect("an ordinary group must still be assignable");
+
+    assert!(
+        response
+            .user
+            .groups
+            .contains(&keyrunes::constants::USERS_GROUP.to_string())
+    );
+}
+
+#[tokio::test]
+async fn the_first_user_is_still_bootstrapped_as_superadmin() {
+    // The bootstrap grants superadmin because the store is empty, not because
+    // the caller asked; the new check must not break it.
+    let (service, _groups, _user_groups) = registration_service();
+
+    let response = service
+        .register(registration_asking_for(None), DEFAULT_NAMESPACE)
+        .await
+        .expect("the first registration must succeed");
+
+    assert!(
+        response
+            .user
+            .groups
+            .contains(&keyrunes::constants::SUPERADMIN_GROUP.to_string()),
+        "the first user lost its bootstrap groups: {:?}",
+        response.user.groups
+    );
+}
