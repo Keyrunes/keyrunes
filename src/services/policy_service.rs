@@ -680,4 +680,196 @@ mod tests {
             "removing an allow granted access: kept {kept:?} dropped {allow:?}"
         );
     }
+
+    /// The read paths delegate straight to the repository, so what they need
+    /// pinned is that they return what it holds rather than a plausible empty
+    /// answer. Without this, each of them could be replaced by `Ok(None)` or
+    /// `Ok(vec![])` and the database-free suite stayed green.
+    #[tokio::test]
+    async fn the_read_paths_return_what_the_repository_holds() {
+        // Setup
+        let service = PolicyService::new(Arc::new(MockPolicyRepository::new()));
+        let created = service
+            .create_policy(
+                CreatePolicyRequest {
+                    organization_id: crate::constants::DEFAULT_ORGANIZATION_ID,
+                    name: "reports_reader".to_string(),
+                    description: None,
+                    resource: "report:*".to_string(),
+                    action: "read".to_string(),
+                    effect: PolicyEffect::Allow,
+                    conditions: None,
+                },
+                DEFAULT_NAMESPACE,
+            )
+            .await
+            .unwrap();
+
+        // Act & Assert
+        let by_name = service
+            .get_policy_by_name(
+                "reports_reader",
+                crate::constants::DEFAULT_ORGANIZATION_ID,
+                DEFAULT_NAMESPACE,
+            )
+            .await
+            .unwrap()
+            .expect("the policy that was just created was not found by name");
+        assert_eq!(by_name.policy_id, created.policy_id);
+        assert_eq!(by_name.resource, "report:*");
+
+        let by_id = service
+            .get_policy_by_id(created.policy_id, DEFAULT_NAMESPACE)
+            .await
+            .unwrap()
+            .expect("the policy that was just created was not found by id");
+        assert_eq!(by_id.name, "reports_reader");
+
+        let listed = service
+            .list_policies(crate::constants::DEFAULT_ORGANIZATION_ID, DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1, "listing lost the stored policy");
+        assert_eq!(listed[0].policy_id, created.policy_id);
+    }
+
+    #[tokio::test]
+    async fn the_read_paths_report_a_miss_as_a_miss() {
+        let service = PolicyService::new(Arc::new(MockPolicyRepository::new()));
+
+        assert!(
+            service
+                .get_policy_by_name(
+                    "nothing_here",
+                    crate::constants::DEFAULT_ORGANIZATION_ID,
+                    DEFAULT_NAMESPACE
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            service
+                .get_policy_by_id(404, DEFAULT_NAMESPACE)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            service
+                .list_policies(crate::constants::DEFAULT_ORGANIZATION_ID, DEFAULT_NAMESPACE)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// Store a policy and hand back its id, so assignment tests have something
+    /// real to grant. `assign_*` refuses an id the repository does not know.
+    async fn stored_policy<P: PolicyRepository>(service: &PolicyService<P>, name: &str) -> i64 {
+        service
+            .create_policy(
+                CreatePolicyRequest {
+                    organization_id: crate::constants::DEFAULT_ORGANIZATION_ID,
+                    name: name.to_string(),
+                    description: None,
+                    resource: "report:*".to_string(),
+                    action: "read".to_string(),
+                    effect: PolicyEffect::Allow,
+                    conditions: None,
+                },
+                DEFAULT_NAMESPACE,
+            )
+            .await
+            .unwrap()
+            .policy_id
+    }
+
+    /// Assignment and removal delegate to the repository and answer `Ok(())`
+    /// either way, so what has to be pinned is the effect, not the return
+    /// value: a grant that silently does not happen, or a revocation that
+    /// silently does not, is exactly the failure this service must not have.
+    #[tokio::test]
+    async fn assigning_and_revoking_reach_the_repository() {
+        // Setup
+        let repo = Arc::new(MockPolicyRepository::new());
+        let service = PolicyService::new(Arc::clone(&repo));
+        let first = stored_policy(&service, "first").await;
+        let second = stored_policy(&service, "second").await;
+
+        // Act: grant to a user and a group.
+        service
+            .assign_policy_to_user(1, first, Some(99), DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+        service
+            .assign_policy_to_group(2, second, Some(99), DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+
+        // Assert
+        assert_eq!(
+            *repo.user_policies.lock().unwrap(),
+            vec![(1, first)],
+            "the user grant never reached the repository"
+        );
+        assert_eq!(
+            *repo.group_policies.lock().unwrap(),
+            vec![(2, second)],
+            "the group grant never reached the repository"
+        );
+
+        // Act: revoke both.
+        service
+            .remove_policy_from_user(1, first, DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+        service
+            .remove_policy_from_group(2, second, DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+
+        // Assert
+        assert!(
+            repo.user_policies.lock().unwrap().is_empty(),
+            "the user revocation never reached the repository"
+        );
+        assert!(
+            repo.group_policies.lock().unwrap().is_empty(),
+            "the group revocation never reached the repository"
+        );
+    }
+
+    /// Revoking one grant must not disturb the others.
+    #[tokio::test]
+    async fn revoking_one_grant_leaves_the_rest_in_place() {
+        let repo = Arc::new(MockPolicyRepository::new());
+        let service = PolicyService::new(Arc::clone(&repo));
+        let reader = stored_policy(&service, "reader").await;
+        let writer = stored_policy(&service, "writer").await;
+
+        service
+            .assign_policy_to_user(1, reader, None, DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+        service
+            .assign_policy_to_user(1, writer, None, DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+        service
+            .assign_policy_to_user(2, reader, None, DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+
+        service
+            .remove_policy_from_user(1, reader, DEFAULT_NAMESPACE)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *repo.user_policies.lock().unwrap(),
+            vec![(1, writer), (2, reader)],
+            "revoking one grant disturbed the others"
+        );
+    }
 }
