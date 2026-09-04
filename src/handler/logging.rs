@@ -155,4 +155,48 @@ mod tests {
         assert_eq!(request_severity(399), RequestSeverity::Debug);
         assert_eq!(request_severity(600), RequestSeverity::Debug);
     }
+
+    /// The middleware only observes: whatever the route answered must reach
+    /// the client unchanged, status and body alike. Without this, replacing
+    /// the whole middleware with a default response went unnoticed.
+    #[test]
+    fn the_logging_middleware_passes_the_response_through_untouched() {
+        use axum::body::Body;
+        use axum::http::{Request as HttpRequest, StatusCode};
+        use axum::routing::get;
+        use axum::{Router, middleware};
+        use tower::ServiceExt as _;
+
+        async fn teapot() -> impl axum::response::IntoResponse {
+            (StatusCode::IM_A_TEAPOT, "short and stout")
+        }
+
+        let router = Router::new()
+            .route("/brew", get(teapot))
+            .layer(middleware::from_fn(request_logging_middleware));
+
+        let (status, body) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build a test runtime")
+            .block_on(async {
+                let response = router
+                    .oneshot(
+                        HttpRequest::builder()
+                            .uri("/brew")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (status, String::from_utf8(bytes.to_vec()).unwrap())
+            });
+
+        assert_eq!(status, StatusCode::IM_A_TEAPOT);
+        assert_eq!(body, "short and stout");
+    }
 }

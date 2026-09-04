@@ -22,13 +22,6 @@ pub struct Claims {
 /// Lifetime of a freshly issued token.
 const TOKEN_TTL_HOURS: i64 = 1;
 
-/// Clock skew tolerated when checking `exp`, in seconds.
-///
-/// Keyrunes issues and verifies with the same clock, so this only absorbs the
-/// sub-second drift between generating a token and checking it. Widening it
-/// widens the window in which a revoked session still works.
-const EXPIRY_LEEWAY_SECONDS: i64 = 0;
-
 #[derive(Clone)]
 pub struct JwtService {
     secret: Vec<u8>,
@@ -135,8 +128,11 @@ impl JwtService {
             ));
         }
 
+        // No clock-skew leeway: Keyrunes issues and verifies against the same
+        // clock, and any leeway is a window in which a revoked session still
+        // works. `exp` is the first instant at which the token is invalid.
         let now = Utc::now().timestamp();
-        if now >= exp + EXPIRY_LEEWAY_SECONDS {
+        if now >= exp {
             return Err(anyhow!("Token expired at {} (now {})", exp, now));
         }
 
