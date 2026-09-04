@@ -1,3 +1,4 @@
+use crate::handler::auth::extract_bearer_token;
 use crate::repository::sqlx_impl::{
     PgGroupRepository, PgOrganizationRepository, PgPasswordResetRepository, PgSettingsRepository,
     PgUserRepository,
@@ -173,7 +174,7 @@ pub async fn change_password_page(
     let mut ctx = Context::new();
     ctx.insert("title", "Change Password");
 
-    if let Some(token) = extract_bearer_token_from_cookie_or_header(&headers) {
+    if let Some(token) = extract_bearer_token(&headers) {
         ctx.insert("token", &token);
     }
 
@@ -188,7 +189,7 @@ pub async fn change_password_post(
     headers: HeaderMap,
     Form(payload): Form<ChangePasswordForm>,
 ) -> impl IntoResponse {
-    let token = match extract_bearer_token_from_cookie_or_header(&headers) {
+    let token = match extract_bearer_token(&headers) {
         Some(token) => token,
         None => {
             return Redirect::to("/login").into_response();
@@ -243,7 +244,7 @@ pub async fn dashboard_page(
     Extension(tmpl): Extension<tera::Tera>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let token = match extract_bearer_token_from_cookie_or_header(&headers) {
+    let token = match extract_bearer_token(&headers) {
         Some(token) => token,
         None => {
             return Redirect::to("/login").into_response();
@@ -283,7 +284,7 @@ pub async fn profile_page(
     Extension(tmpl): Extension<tera::Tera>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let token = match extract_bearer_token_from_cookie_or_header(&headers) {
+    let token = match extract_bearer_token(&headers) {
         Some(token) => token,
         None => return Redirect::to("/login").into_response(),
     };
@@ -319,7 +320,7 @@ pub async fn profile_post(
     headers: HeaderMap,
     Form(payload): Form<ProfileForm>,
 ) -> impl IntoResponse {
-    let token = match extract_bearer_token_from_cookie_or_header(&headers) {
+    let token = match extract_bearer_token(&headers) {
         Some(token) => token,
         None => return Redirect::to("/login").into_response(),
     };
@@ -387,31 +388,6 @@ pub async fn reset_password_page(
     }
 }
 
-fn extract_bearer_token_from_cookie_or_header(headers: &HeaderMap) -> Option<String> {
-    if let Some(auth_header) = headers.get("authorization")
-        && let Ok(auth_str) = auth_header.to_str()
-        && auth_str.starts_with("Bearer ")
-        && auth_str.len() > 7
-    {
-        return Some(auth_str[7..].to_string());
-    }
-
-    if let Some(cookie_header) = headers.get("cookie")
-        && let Ok(cookie_str) = cookie_header.to_str()
-    {
-        for cookie in cookie_str.split(';') {
-            let cookie = cookie.trim();
-            if let Some(token_value) = cookie.strip_prefix("jwt_token=")
-                && !token_value.is_empty()
-            {
-                return Some(token_value.to_string());
-            }
-        }
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,7 +401,7 @@ mod tests {
             HeaderValue::from_static("Bearer test_token"),
         );
 
-        let token = extract_bearer_token_from_cookie_or_header(&headers);
+        let token = extract_bearer_token(&headers);
         assert_eq!(token, Some("test_token".to_string()));
     }
 
@@ -437,7 +413,7 @@ mod tests {
             HeaderValue::from_static("jwt_token=test_token; other=value"),
         );
 
-        let token = extract_bearer_token_from_cookie_or_header(&headers);
+        let token = extract_bearer_token(&headers);
         assert_eq!(token, Some("test_token".to_string()));
     }
 
@@ -446,14 +422,14 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("cookie", HeaderValue::from_static("jwt_token=test_token"));
 
-        let token = extract_bearer_token_from_cookie_or_header(&headers);
+        let token = extract_bearer_token(&headers);
         assert_eq!(token, Some("test_token".to_string()));
     }
 
     #[test]
     fn test_extract_token_missing() {
         let headers = HeaderMap::new();
-        let token = extract_bearer_token_from_cookie_or_header(&headers);
+        let token = extract_bearer_token(&headers);
         assert_eq!(token, None);
     }
 
@@ -465,7 +441,7 @@ mod tests {
             HeaderValue::from_static("malformed_cookie_without_equals"),
         );
 
-        let token = extract_bearer_token_from_cookie_or_header(&headers);
+        let token = extract_bearer_token(&headers);
         assert_eq!(token, None);
     }
 
@@ -474,7 +450,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("cookie", HeaderValue::from_static("jwt_token="));
 
-        let token = extract_bearer_token_from_cookie_or_header(&headers);
+        let token = extract_bearer_token(&headers);
         assert_eq!(token, None);
     }
 
@@ -510,7 +486,7 @@ mod tests {
         // credential is empty, so there is no token to extract.
         headers.insert("authorization", HeaderValue::from_static("Bearer "));
 
-        assert_eq!(extract_bearer_token_from_cookie_or_header(&headers), None);
+        assert_eq!(extract_bearer_token(&headers), None);
     }
 
     #[test]
@@ -518,9 +494,6 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", HeaderValue::from_static("Bearer x"));
 
-        assert_eq!(
-            extract_bearer_token_from_cookie_or_header(&headers),
-            Some("x".to_string())
-        );
+        assert_eq!(extract_bearer_token(&headers), Some("x".to_string()));
     }
 }

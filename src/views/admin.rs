@@ -7,14 +7,22 @@ use tera::Tera;
 use crate::constants::{ADMIN_GROUP, SUPERADMIN_GROUP};
 use crate::handler::auth::AuthenticatedUser;
 
+/// Whether a set of group memberships may open the admin page.
+///
+/// Split out of [`admin_page`], which can only be called with a live
+/// `PgPool` extension, so the gate itself can be asserted directly.
+pub fn may_view_admin(groups: &[String]) -> bool {
+    groups
+        .iter()
+        .any(|group| group == SUPERADMIN_GROUP || group == ADMIN_GROUP)
+}
+
 pub async fn admin_page(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(tera): Extension<Tera>,
     Extension(_pool): Extension<sqlx::PgPool>,
 ) -> impl IntoResponse {
-    if !user.groups.contains(&SUPERADMIN_GROUP.to_string())
-        && !user.groups.contains(&ADMIN_GROUP.to_string())
-    {
+    if !may_view_admin(&user.groups) {
         return Redirect::to("/dashboard").into_response();
     }
 

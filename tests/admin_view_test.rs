@@ -1,164 +1,95 @@
-#[tokio::test]
-async fn test_admin_endpoint_structure() {
-    // Setup
-    let endpoints = [
-        "/api/admin/dashboard",
-        "/api/admin/users",
-        "/api/admin/user",
-        "/api/admin/groups",
-        "/api/admin/policies",
-        "/api/admin/users/:user_id/groups/:group_id",
-        "/api/admin/check-permission",
-    ];
+//! Tests for the admin view's access gate.
+//!
+//! `admin_page` itself can only be called with a live `PgPool` extension, so
+//! the gate is exercised through `may_view_admin`, the function it delegates
+//! to. Membership is enumerated rather than sampled: this decides who reaches
+//! the administrative surface, and the interesting cases are the ones a
+//! sampled test would not think to write down — a group whose name merely
+//! contains "admin", a privileged group sitting behind several others, the
+//! empty set.
 
-    // Act
-    let count = endpoints.len();
+use exhaustive::{Exhaustive, exhaustive_test};
+use keyrunes::constants::{ADMIN_GROUP, SUPERADMIN_GROUP, USERS_GROUP};
+use keyrunes::views::admin::may_view_admin;
 
-    // Assert
-    assert!(count > 0);
+/// One membership a user may hold, and whether it alone opens the gate.
+#[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+enum Membership {
+    Superadmin,
+    Admin,
+    Users,
+    /// A group whose name contains "admin" without being it.
+    AdminLookalike,
+    /// A group whose name is `admin` with different casing.
+    AdminWrongCase,
+    /// An unrelated application group.
+    Unrelated,
 }
 
-#[test]
-fn test_check_permission_request_structure() {
-    // Setup
-    use serde_json::json;
-
-    let request = json!({
-        "user_id": 1,
-        "group_name": "developers",
-        "resource": "user:*",
-        "action": "read"
-    });
-
-    // Act
-    let user_id = &request["user_id"];
-    let group_name = &request["group_name"];
-
-    // Assert
-    assert!(user_id.is_number());
-    assert!(group_name.is_string());
-    assert!(request["resource"].is_string());
-    assert!(request["action"].is_string());
-}
-
-#[test]
-fn test_admin_dashboard_response_structure() {
-    // Setup
-    use serde_json::json;
-
-    let response = json!({
-        "total_users": 10,
-        "total_groups": 3,
-        "total_policies": 5,
-        "current_admin": {
-            "user_id": 1,
-            "username": "admin",
-            "email": "admin@example.com",
-            "groups": ["superadmin"]
+impl Membership {
+    fn name(self) -> &'static str {
+        match self {
+            Membership::Superadmin => SUPERADMIN_GROUP,
+            Membership::Admin => ADMIN_GROUP,
+            Membership::Users => USERS_GROUP,
+            Membership::AdminLookalike => "administrators",
+            Membership::AdminWrongCase => "Admin",
+            Membership::Unrelated => "instructor",
         }
-    });
+    }
 
-    // Act
-    let total_users = &response["total_users"];
-
-    // Assert
-    assert!(total_users.is_number());
-    assert!(response["total_groups"].is_number());
-    assert!(response["total_policies"].is_number());
-    assert!(response["current_admin"]["groups"].is_array());
-}
-
-#[test]
-fn test_user_list_response_structure() {
-    use serde_json::json;
-
-    let response = json!([
-        {
-            "user_id": 1,
-            "external_id": "550e8400-e29b-41d4-a716-446655440000",
-            "email": "user@example.com",
-            "username": "testuser",
-            "first_login": false,
-            "groups": ["users"],
-            "created_at": "2025-11-27T10:00:00Z"
-        }
-    ]);
-
-    assert!(response.is_array());
-    assert!(response[0]["user_id"].is_number());
-    assert!(response[0]["email"].is_string());
-    assert!(response[0]["groups"].is_array());
-}
-
-#[test]
-fn test_group_creation_request_structure() {
-    use serde_json::json;
-
-    let request = json!({
-        "name": "developers",
-        "description": "Development team"
-    });
-
-    assert!(request["name"].is_string());
-    assert!(request["description"].is_string() || request["description"].is_null());
-}
-
-#[test]
-fn test_assign_group_response_structure() {
-    use serde_json::json;
-
-    let response = json!({
-        "message": "User assigned to group successfully"
-    });
-
-    assert_eq!(response["message"], "User assigned to group successfully");
-}
-
-#[test]
-fn test_permission_check_response_structure() {
-    use serde_json::json;
-
-    let response = json!({
-        "user_id": 1,
-        "group_name": "developers",
-        "resource": "user:*",
-        "action": "read",
-        "has_permission": true
-    });
-
-    assert!(response["user_id"].is_number());
-    assert!(response["group_name"].is_string());
-    assert!(response["resource"].is_string());
-    assert!(response["action"].is_string());
-    assert!(response["has_permission"].is_boolean());
-}
-
-#[test]
-fn test_empty_group_name_invalid() {
-    let name = String::from("valid_name");
-    assert!(!name.is_empty());
-}
-
-#[test]
-fn test_invalid_user_id() {
-    let user_id: i64 = -1;
-    assert!(user_id < 0);
-}
-
-#[test]
-fn test_wildcard_resource_patterns() {
-    let patterns = vec!["*", "user:*", "user:self", "admin:*"];
-
-    for pattern in patterns {
-        assert!(!pattern.is_empty());
+    /// Only the two privileged groups grant access, matched exactly.
+    fn grants(self) -> bool {
+        matches!(self, Membership::Superadmin | Membership::Admin)
     }
 }
 
-#[test]
-fn test_action_types() {
-    let actions = vec!["read", "write", "delete", "update", "*"];
+fn groups_of(memberships: &[Option<Membership>]) -> Vec<String> {
+    memberships
+        .iter()
+        .flatten()
+        .map(|m| m.name().to_string())
+        .collect()
+}
 
-    for action in actions {
-        assert!(!action.is_empty());
+/// Every membership set of up to three groups: 7 x 7 x 7 = 343 combinations.
+///
+/// Access is granted exactly when a privileged group is present, wherever it
+/// sits in the list and whatever else is alongside it.
+#[exhaustive_test]
+fn the_admin_gate_opens_only_for_a_privileged_group(
+    first: Option<Membership>,
+    second: Option<Membership>,
+    third: Option<Membership>,
+) {
+    let memberships = [first, second, third];
+    let groups = groups_of(&memberships);
+
+    let expected = memberships.iter().flatten().any(|m| m.grants());
+
+    assert_eq!(
+        may_view_admin(&groups),
+        expected,
+        "wrong decision for {groups:?}"
+    );
+}
+
+/// A user holding nothing at all must not reach the admin page.
+#[test]
+fn the_admin_gate_is_closed_by_default() {
+    assert!(!may_view_admin(&[]));
+}
+
+/// Adding an ordinary group can never open the gate on its own, and can never
+/// close one a privileged group had opened.
+#[exhaustive_test]
+fn an_ordinary_group_never_changes_the_decision(held: Option<Membership>, added: Membership) {
+    if added.grants() {
+        return;
     }
+
+    let before = may_view_admin(&groups_of(&[held]));
+    let after = may_view_admin(&groups_of(&[held, Some(added)]));
+
+    assert_eq!(before, after, "{added:?} changed the decision for {held:?}");
 }

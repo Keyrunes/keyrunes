@@ -1,86 +1,27 @@
+//! Content negotiation for the real 404 handler in `keyrunes::handler::errors`.
+//!
+//! The fallback below is the production `handler_404`, not a copy of it: a
+//! test that re-implements the code it is checking stays green when the code
+//! it is meant to guard breaks.
+
 use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode},
     routing::get,
 };
+use keyrunes::handler::errors::handler_404;
 use tower::ServiceExt;
 
-mod test_handlers {
-    use axum::extract::Request;
-    use axum::http::{HeaderMap, StatusCode};
-    use axum::response::{Html, IntoResponse, Json, Response};
-    use serde::Serialize;
-
-    #[derive(Debug, Serialize, Clone)]
-    pub struct ErrorResponse {
-        pub error: String,
-        pub message: String,
-        pub status_code: u16,
-    }
-
-    impl ErrorResponse {
-        pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-            Self {
-                error: status
-                    .canonical_reason()
-                    .unwrap_or("Unknown Error")
-                    .to_string(),
-                message: message.into(),
-                status_code: status.as_u16(),
-            }
-        }
-
-        pub fn not_found(message: impl Into<String>) -> Self {
-            Self::new(StatusCode::NOT_FOUND, message)
-        }
-    }
-
-    impl IntoResponse for ErrorResponse {
-        fn into_response(self) -> Response {
-            let status =
-                StatusCode::from_u16(self.status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            (status, Json(self)).into_response()
-        }
-    }
-
-    fn wants_json(headers: &HeaderMap) -> bool {
-        headers
-            .get("accept")
-            .and_then(|v| v.to_str().ok())
-            .map(|accept| accept.contains("application/json") || accept.contains("*/json"))
-            .unwrap_or(false)
-    }
-
-    fn is_api_route(path: &str) -> bool {
-        path.starts_with("/api/")
-    }
-
-    pub async fn handler_404(req: Request) -> impl IntoResponse {
-        let uri = req.uri().clone();
-        let path = uri.path();
-        let headers = req.headers().clone();
-
-        if is_api_route(path) || wants_json(&headers) {
-            return ErrorResponse::not_found("The requested resource was not found")
-                .into_response();
-        }
-
-        let html = r#"<!DOCTYPE html>
-<html><body><h1>404 - Page Not Found</h1></body></html>"#;
-
-        (StatusCode::NOT_FOUND, Html(html)).into_response()
-    }
-
-    pub async fn mock_health() -> impl axum::response::IntoResponse {
-        axum::Json(serde_json::json!({ "status": "healthy" }))
-    }
+/// A route that succeeds, so the fallback can be shown not to swallow it.
+async fn ok_endpoint() -> impl axum::response::IntoResponse {
+    axum::Json(serde_json::json!({ "status": "healthy" }))
 }
 
 async fn create_test_app() -> Router {
     Router::new()
-        .route("/api/health", get(test_handlers::mock_health))
-        .fallback(test_handlers::handler_404)
+        .route("/api/health", get(ok_endpoint))
+        .fallback(handler_404)
 }
 
 #[tokio::test]

@@ -3,20 +3,42 @@
 # `mutagen` (llogiq/mutagen) is unmaintained and nightly-only; cargo-mutants is
 # its de-facto successor and runs on stable.
 #
-# Scope: the integration suites under `tests/` need a live PostgreSQL, so the
-# mutation run uses only the DB-free targets (`--lib` plus the JWT property
-# suite). Mutating repository/service code that those targets cannot reach
-# would report survivors that say nothing about test quality, so the examined
-# set is restricted to the modules the DB-free tests actually cover.
+# Scope: every mutant costs a rebuild, so the selected test targets are the
+# ones that need neither a database nor a running server *and* finish fast.
+# `--lib` carries the in-module suites; the four integration suites listed
+# below run in well under a second each.
+#
+# Deliberately excluded, and why:
+#   * `user_services_test` - argon2 by design takes ~18s per run, which alone
+#     would multiply the mutation run by an order of magnitude. The registration
+#     rules it guards have their own regression tests there instead.
+#   * `group_service_test`, `organization_service_test` - same cost, same
+#     reasoning.
+#   * `api_health_test`, `org_key_test`, `policy_service_test`,
+#     `settings_repo_test`, `sqlx_impl_tests` - need a live PostgreSQL.
+#   * `stress_test` - needs a running server.
+#
+# `examine_globs` is restricted to what the selected targets actually reach:
+# mutating code they cannot exercise would report survivors that say nothing
+# about test quality.
 examine_globs = [
     "src/services/jwt_service.rs",
+    "src/services/policy_service.rs",
     "src/handler/errors.rs",
+    "src/handler/auth.rs",
     "src/handler/logging.rs",
     "src/views/auth.rs",
+    "src/views/admin.rs",
     "src/api/health.rs",
 ]
 
-additional_cargo_test_args = ["--lib", "--test", "jwt_property_test"]
+additional_cargo_test_args = [
+    "--lib",
+    "--test", "jwt_property_test",
+    "--test", "admin_view_test",
+    "--test", "all_errors_code",
+    "--test", "test_404_error",
+]
 
 timeout_multiplier = 5.0
 minimum_test_timeout = 60

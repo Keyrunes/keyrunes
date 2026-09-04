@@ -222,6 +222,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::HeaderValue;
     use axum::http::Request as HttpRequest;
+    use exhaustive::{Exhaustive, exhaustive_test};
 
     #[tokio::test]
     async fn test_error_handlers() {
@@ -371,5 +372,148 @@ mod tests {
             content_type.contains("application/json"),
             "expected JSON, got {content_type}"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // Exhaustive content negotiation for the 404 handler.
+    //
+    // Whether a miss answers JSON or HTML is decided by two independent
+    // inputs, so the cross product of their interesting shapes is enumerated
+    // rather than sampled. An API client that receives an HTML error page
+    // fails to parse it; a browser that receives JSON shows raw text.
+    // ---------------------------------------------------------------------
+
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    enum PathShape {
+        /// `/api/` — the boundary of the prefix itself.
+        ApiPrefix,
+        /// A real API path.
+        ApiNested,
+        /// `/api` with no trailing slash: outside the API surface.
+        ApiNoSlash,
+        /// `/apidocs` — starts with "/api" but is not under "/api/".
+        ApiLookalike,
+        /// `/api` appearing further down the path, not as the prefix.
+        ApiInTheMiddle,
+        /// A browser page.
+        Page,
+        /// The site root.
+        Root,
+    }
+
+    impl PathShape {
+        fn path(self) -> &'static str {
+            match self {
+                PathShape::ApiPrefix => "/api/",
+                PathShape::ApiNested => "/api/users/42",
+                PathShape::ApiNoSlash => "/api",
+                PathShape::ApiLookalike => "/apidocs",
+                PathShape::ApiInTheMiddle => "/docs/api/reference",
+                PathShape::Page => "/login",
+                PathShape::Root => "/",
+            }
+        }
+
+        /// Only paths genuinely under `/api/` are API routes.
+        fn is_api(self) -> bool {
+            matches!(self, PathShape::ApiPrefix | PathShape::ApiNested)
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    enum AcceptShape {
+        /// No Accept header at all.
+        Absent,
+        Json,
+        /// A browser-style list that happens to include JSON.
+        JsonAmongOthers,
+        /// The `*/json` form the implementation also honours.
+        StarJson,
+        Html,
+        /// `*/*` — accepts anything, but names no JSON.
+        StarStar,
+        Empty,
+        Garbage,
+        /// Bytes that are not valid UTF-8, so `to_str()` fails.
+        NonUtf8,
+    }
+
+    impl AcceptShape {
+        fn header(self) -> Option<HeaderValue> {
+            match self {
+                AcceptShape::Absent => None,
+                AcceptShape::Json => Some(HeaderValue::from_static("application/json")),
+                AcceptShape::JsonAmongOthers => Some(HeaderValue::from_static(
+                    "text/html,application/xhtml+xml,application/json;q=0.9",
+                )),
+                AcceptShape::StarJson => Some(HeaderValue::from_static("*/json")),
+                AcceptShape::Html => Some(HeaderValue::from_static("text/html")),
+                AcceptShape::StarStar => Some(HeaderValue::from_static("*/*")),
+                AcceptShape::Empty => Some(HeaderValue::from_static("")),
+                AcceptShape::Garbage => Some(HeaderValue::from_static(";;;not-a-media-type;;;")),
+                AcceptShape::NonUtf8 => Some(HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap()),
+            }
+        }
+
+        /// Only a header that actually names JSON asks for JSON.
+        fn asks_for_json(self) -> bool {
+            matches!(
+                self,
+                AcceptShape::Json | AcceptShape::JsonAmongOthers | AcceptShape::StarJson
+            )
+        }
+    }
+
+    /// All 7 x 9 = 63 combinations of path shape and Accept header. The body
+    /// format must follow "API route or client asked for JSON", and the status
+    /// must be 404 in every single case.
+    #[exhaustive_test]
+    fn the_404_body_format_follows_route_and_accept(path: PathShape, accept: AcceptShape) {
+        let mut builder = HttpRequest::builder().uri(path.path());
+        if let Some(value) = accept.header() {
+            builder = builder.header("accept", value);
+        }
+        let req = builder.body(Body::empty()).unwrap();
+
+        let response = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("failed to build a test runtime")
+            .block_on(async { handler_404(req).await.into_response() });
+
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "a miss must be 404 whatever the client asked for: {path:?} {accept:?}"
+        );
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let served_json = content_type.contains("application/json");
+
+        assert_eq!(
+            served_json,
+            path.is_api() || accept.asks_for_json(),
+            "wrong body format for {path:?} with {accept:?} (content-type {content_type})"
+        );
+    }
+
+    /// `is_api_route` and `wants_json` are the two halves of that decision;
+    /// pin each one on its own so a failure above says which half moved.
+    #[exhaustive_test]
+    fn is_api_route_recognises_only_the_api_prefix(path: PathShape) {
+        assert_eq!(is_api_route(path.path()), path.is_api(), "{path:?}");
+    }
+
+    #[exhaustive_test]
+    fn wants_json_reads_only_the_accept_header(accept: AcceptShape) {
+        let mut headers = HeaderMap::new();
+        if let Some(value) = accept.header() {
+            headers.insert("accept", value);
+        }
+        assert_eq!(wants_json(&headers), accept.asks_for_json(), "{accept:?}");
     }
 }

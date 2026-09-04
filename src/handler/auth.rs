@@ -190,8 +190,11 @@ pub async fn require_org_key_or_superadmin(
         .into_response()
 }
 
-/// Extract Bearer token from Authorization header or cookies
-fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
+/// Extract Bearer token from Authorization header or cookies.
+///
+/// Shared with the HTML views: both entry points must agree on what counts
+/// as a token, and two copies of this parser would be free to drift apart.
+pub(crate) fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     if let Some(auth_header) = headers.get("authorization")
         && let Ok(auth_str) = auth_header.to_str()
         && auth_str.starts_with("Bearer ")
@@ -222,6 +225,7 @@ mod tests {
     use super::*;
     use crate::constants::USERS_GROUP;
     use axum::http::{HeaderMap, HeaderValue};
+    use exhaustive::{Exhaustive, exhaustive_test};
 
     #[test]
     fn test_extract_bearer_token_from_header() {
@@ -307,5 +311,157 @@ mod tests {
         assert_eq!(user.username, "testuser");
         assert_eq!(user.groups, vec![USERS_GROUP, "admin"]);
         assert_eq!(user.namespace, "test_ns");
+    }
+
+    // ---------------------------------------------------------------------
+    // Exhaustive token extraction.
+    //
+    // `extract_bearer_token` is the front door: every authenticated request
+    // passes through it, and it reads from two independent sources. The cross
+    // product of their shapes is enumerated so the precedence between them,
+    // and every rejection, is pinned rather than sampled.
+    // ---------------------------------------------------------------------
+
+    /// The token an accepted case must yield from the Authorization header.
+    const HEADER_TOKEN: &str = "header-token";
+    /// The token an accepted case must yield from the cookie.
+    const COOKIE_TOKEN: &str = "cookie-token";
+
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    enum AuthHeader {
+        Absent,
+        /// A well-formed `Bearer <token>`.
+        Bearer,
+        /// `Bearer ` with nothing after it.
+        BearerEmpty,
+        /// `Bearer` with no trailing space at all.
+        BearerNoSpace,
+        /// Lowercase scheme. RFC 7235 calls the scheme case-insensitive, but
+        /// this implementation matches it case-sensitively.
+        LowercaseBearer,
+        /// A different auth scheme.
+        Basic,
+        /// A bare token with no scheme.
+        SchemeLess,
+        /// Bytes that are not valid UTF-8, so `to_str()` fails.
+        NonUtf8,
+    }
+
+    impl AuthHeader {
+        fn value(self) -> Option<HeaderValue> {
+            match self {
+                AuthHeader::Absent => None,
+                AuthHeader::Bearer => Some(HeaderValue::from_static("Bearer header-token")),
+                AuthHeader::BearerEmpty => Some(HeaderValue::from_static("Bearer ")),
+                AuthHeader::BearerNoSpace => Some(HeaderValue::from_static("Bearer")),
+                AuthHeader::LowercaseBearer => {
+                    Some(HeaderValue::from_static("bearer header-token"))
+                }
+                AuthHeader::Basic => Some(HeaderValue::from_static("Basic aGk6dGhlcmU=")),
+                AuthHeader::SchemeLess => Some(HeaderValue::from_static("header-token")),
+                AuthHeader::NonUtf8 => Some(HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap()),
+            }
+        }
+
+        /// Whether this header alone yields a token.
+        fn yields_token(self) -> bool {
+            self == AuthHeader::Bearer
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    enum CookieHeader {
+        Absent,
+        /// `jwt_token=<token>` on its own.
+        Only,
+        /// The token cookie after another one.
+        AfterAnother,
+        /// The token cookie before another one.
+        BeforeAnother,
+        /// Present but with an empty value.
+        EmptyValue,
+        /// A cookie whose name merely ends with `jwt_token`, which must not
+        /// be mistaken for it.
+        NameSuffixTrap,
+        /// Some other cookie entirely.
+        Unrelated,
+        NonUtf8,
+    }
+
+    impl CookieHeader {
+        fn value(self) -> Option<HeaderValue> {
+            match self {
+                CookieHeader::Absent => None,
+                CookieHeader::Only => Some(HeaderValue::from_static("jwt_token=cookie-token")),
+                CookieHeader::AfterAnother => Some(HeaderValue::from_static(
+                    "theme=dark; jwt_token=cookie-token",
+                )),
+                CookieHeader::BeforeAnother => Some(HeaderValue::from_static(
+                    "jwt_token=cookie-token; theme=dark",
+                )),
+                CookieHeader::EmptyValue => Some(HeaderValue::from_static("jwt_token=")),
+                CookieHeader::NameSuffixTrap => {
+                    Some(HeaderValue::from_static("not_jwt_token=cookie-token"))
+                }
+                CookieHeader::Unrelated => Some(HeaderValue::from_static("theme=dark")),
+                CookieHeader::NonUtf8 => Some(HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap()),
+            }
+        }
+
+        fn yields_token(self) -> bool {
+            matches!(
+                self,
+                CookieHeader::Only | CookieHeader::AfterAnother | CookieHeader::BeforeAnother
+            )
+        }
+    }
+
+    fn headers_for(auth: AuthHeader, cookie: CookieHeader) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        if let Some(value) = auth.value() {
+            headers.insert("authorization", value);
+        }
+        if let Some(value) = cookie.value() {
+            headers.insert("cookie", value);
+        }
+        headers
+    }
+
+    /// All 8 x 8 = 64 combinations of the two sources.
+    ///
+    /// The Authorization header takes precedence; the cookie is consulted only
+    /// when the header yields nothing. Anything else yields no token at all,
+    /// and no shape may panic.
+    #[exhaustive_test]
+    fn extract_bearer_token_prefers_the_header_over_the_cookie(
+        auth: AuthHeader,
+        cookie: CookieHeader,
+    ) {
+        let extracted = extract_bearer_token(&headers_for(auth, cookie));
+
+        let expected = if auth.yields_token() {
+            Some(HEADER_TOKEN.to_string())
+        } else if cookie.yields_token() {
+            Some(COOKIE_TOKEN.to_string())
+        } else {
+            None
+        };
+
+        assert_eq!(extracted, expected, "auth {auth:?} with cookie {cookie:?}");
+    }
+
+    /// A malformed Authorization header must fall through to the cookie rather
+    /// than swallow the request: a browser session survives a stray header.
+    #[exhaustive_test]
+    fn a_rejected_auth_header_still_lets_the_cookie_through(auth: AuthHeader) {
+        if auth.yields_token() {
+            return;
+        }
+
+        assert_eq!(
+            extract_bearer_token(&headers_for(auth, CookieHeader::Only)),
+            Some(COOKIE_TOKEN.to_string()),
+            "{auth:?} blocked the cookie"
+        );
     }
 }

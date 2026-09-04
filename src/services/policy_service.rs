@@ -224,6 +224,7 @@ mod tests {
     use anyhow::Result;
     use async_trait::async_trait;
     use chrono::Utc;
+    use exhaustive::{Exhaustive, exhaustive_test};
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
@@ -439,5 +440,244 @@ mod tests {
         assert!(service.matches_policy(&policy, "api:admin", "write"));
 
         assert!(!service.matches_policy(&policy, "database:users", "read"));
+    }
+
+    // ---------------------------------------------------------------------
+    // Exhaustive authorization tests.
+    //
+    // `evaluate_permission` is the decision point for every authorization
+    // question Keyrunes answers, so it is enumerated rather than sampled: the
+    // `exhaustive` crate walks *every* combination of the modelled policy
+    // space, and each case is checked against invariants that hold no matter
+    // how matching is implemented.
+    // ---------------------------------------------------------------------
+
+    /// The distinct shapes a policy's `resource` can take relative to the
+    /// resource being asked about. Concrete strings are chosen by
+    /// [`PolicySpec::resource_pattern`].
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    enum ResourcePattern {
+        /// `*` — the catch-all.
+        Star,
+        /// Exactly the requested resource.
+        Exact,
+        /// A prefix glob that covers the requested resource (`user:*`).
+        MatchingGlob,
+        /// A prefix glob that does not (`billing:*`).
+        ForeignGlob,
+        /// An unrelated exact resource.
+        Foreign,
+        /// A bare `*` suffix on an empty prefix, which reaches the glob branch
+        /// with an empty prefix — every resource starts with "".
+        EmptyGlob,
+    }
+
+    /// The shapes a policy's `action` can take relative to the asked action.
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    enum ActionPattern {
+        Star,
+        Exact,
+        Foreign,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    enum Effect {
+        Allow,
+        Deny,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Exhaustive)]
+    struct PolicySpec {
+        effect: Effect,
+        resource: ResourcePattern,
+        action: ActionPattern,
+    }
+
+    /// The resource and action every exhaustive case asks about.
+    const ASKED_RESOURCE: &str = "user:123";
+    const ASKED_ACTION: &str = "read";
+
+    impl PolicySpec {
+        fn resource_pattern(self) -> &'static str {
+            match self.resource {
+                ResourcePattern::Star => "*",
+                ResourcePattern::Exact => ASKED_RESOURCE,
+                ResourcePattern::MatchingGlob => "user:*",
+                ResourcePattern::ForeignGlob => "billing:*",
+                ResourcePattern::Foreign => "billing:123",
+                ResourcePattern::EmptyGlob => "*",
+            }
+        }
+
+        fn action_pattern(self) -> &'static str {
+            match self.action {
+                ActionPattern::Star => "*",
+                ActionPattern::Exact => ASKED_ACTION,
+                ActionPattern::Foreign => "delete",
+            }
+        }
+
+        /// Whether this policy is expected to apply to the asked pair. Derived
+        /// from the *pattern shapes*, not from the implementation, so it is an
+        /// independent statement of the intended semantics.
+        fn applies(self) -> bool {
+            let resource_applies = matches!(
+                self.resource,
+                ResourcePattern::Star
+                    | ResourcePattern::Exact
+                    | ResourcePattern::MatchingGlob
+                    | ResourcePattern::EmptyGlob
+            );
+            let action_applies = matches!(self.action, ActionPattern::Star | ActionPattern::Exact);
+            resource_applies && action_applies
+        }
+
+        fn to_policy(self, policy_id: i64) -> Policy {
+            Policy {
+                policy_id,
+                external_id: Uuid::new_v4(),
+                organization_id: crate::constants::DEFAULT_ORGANIZATION_ID,
+                name: format!("policy_{policy_id}"),
+                description: None,
+                resource: self.resource_pattern().to_string(),
+                action: self.action_pattern().to_string(),
+                effect: match self.effect {
+                    Effect::Allow => PolicyEffect::Allow,
+                    Effect::Deny => PolicyEffect::Deny,
+                },
+                conditions: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            }
+        }
+    }
+
+    /// Run `evaluate_permission` on a private current-thread runtime.
+    ///
+    /// The exhaustive macro generates plain `#[test]` functions, and building
+    /// one runtime per case keeps the cases independent.
+    fn decide(policies: &[Policy]) -> bool {
+        let service = PolicyService::new(Arc::new(MockPolicyRepository::new()));
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("failed to build a test runtime")
+            .block_on(service.evaluate_permission(policies, ASKED_RESOURCE, ASKED_ACTION))
+    }
+
+    fn build(specs: &[Option<PolicySpec>]) -> Vec<Policy> {
+        specs
+            .iter()
+            .flatten()
+            .enumerate()
+            .map(|(i, spec)| spec.to_policy(i as i64 + 1))
+            .collect()
+    }
+
+    /// Every pair of policies, including the empty and single-policy cases:
+    /// 31 x 31 = 961 combinations, each checked against the access-control
+    /// invariants the service is supposed to guarantee.
+    #[exhaustive_test]
+    fn evaluate_permission_holds_its_invariants(a: Option<PolicySpec>, b: Option<PolicySpec>) {
+        let specs = [a, b];
+        let policies = build(&specs);
+        let granted = decide(&policies);
+
+        let applicable: Vec<PolicySpec> = specs
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|s| s.applies())
+            .collect();
+        let has_allow = applicable.iter().any(|s| s.effect == Effect::Allow);
+        let has_deny = applicable.iter().any(|s| s.effect == Effect::Deny);
+
+        // 1. Default deny: without an applicable Allow, nothing is granted.
+        if !has_allow {
+            assert!(!granted, "granted without an applicable allow: {specs:?}");
+        }
+
+        // 2. Deny wins: one applicable Deny overrides every Allow.
+        if has_deny {
+            assert!(!granted, "an applicable deny did not override: {specs:?}");
+        }
+
+        // 3. The only way to be granted.
+        assert_eq!(
+            granted,
+            has_allow && !has_deny,
+            "decision disagreed with the policy shapes: {specs:?}"
+        );
+    }
+
+    /// The decision must not depend on the order policies arrive in.
+    #[exhaustive_test]
+    fn evaluate_permission_is_order_independent(a: Option<PolicySpec>, b: Option<PolicySpec>) {
+        let forward = build(&[a, b]);
+        let mut reversed = forward.clone();
+        reversed.reverse();
+
+        assert_eq!(
+            decide(&forward),
+            decide(&reversed),
+            "order changed the decision: {a:?} {b:?}"
+        );
+    }
+
+    /// Evaluating the same policy twice must not change the answer.
+    #[exhaustive_test]
+    fn evaluate_permission_is_idempotent_under_duplication(spec: Option<PolicySpec>) {
+        let once = build(&[spec]);
+        let twice = build(&[spec, spec]);
+
+        assert_eq!(
+            decide(&once),
+            decide(&twice),
+            "duplication changed the decision: {spec:?}"
+        );
+    }
+
+    /// Adding a policy can never turn a denial into a grant when the added
+    /// policy is a Deny: authorization must be monotonically restrictive.
+    #[exhaustive_test]
+    fn adding_a_deny_never_grants(
+        base: Option<PolicySpec>,
+        added_resource: ResourcePattern,
+        added_action: ActionPattern,
+    ) {
+        let before = decide(&build(&[base]));
+
+        let deny = PolicySpec {
+            effect: Effect::Deny,
+            resource: added_resource,
+            action: added_action,
+        };
+        let after = decide(&build(&[base, Some(deny)]));
+
+        assert!(
+            !(after && !before),
+            "adding a deny granted access it had refused: base {base:?} deny {deny:?}"
+        );
+    }
+
+    /// Dropping an Allow can never turn a denial into a grant.
+    #[exhaustive_test]
+    fn dropping_an_allow_never_grants(
+        kept: Option<PolicySpec>,
+        dropped_resource: ResourcePattern,
+        dropped_action: ActionPattern,
+    ) {
+        let allow = PolicySpec {
+            effect: Effect::Allow,
+            resource: dropped_resource,
+            action: dropped_action,
+        };
+
+        let with_allow = decide(&build(&[kept, Some(allow)]));
+        let without = decide(&build(&[kept]));
+
+        assert!(
+            !(without && !with_allow),
+            "removing an allow granted access: kept {kept:?} dropped {allow:?}"
+        );
     }
 }
