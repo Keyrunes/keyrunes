@@ -37,5 +37,43 @@ pub fn is_privileged_group(group: &str) -> bool {
 /// Password validation
 pub const MIN_PASSWORD_LENGTH: usize = 8;
 
-/// JWT token  
+/// Minimum accepted length for a `JWT_SECRET`.
+///
+/// HS256 exchanges a secret of arbitrary length and derives the HMAC key from
+/// it, so a short secret is directly brute-forceable offline. 32 bytes matches
+/// the SHA-256 output size and satisfies every guidance we follow.
+pub const MIN_JWT_SECRET_LENGTH: usize = 32;
+
+/// JWT secret used **only in tests**.
+///
+/// Production code must never fall back to a hardcoded secret: doing so once
+/// (see the CVE-class auth bypass found during the security review) lets anyone
+/// forge a superadmin token. The value is gated behind `#[cfg(test)]` so it is
+/// not even compiled into release builds.
+#[cfg(test)]
 pub const DEFAULT_JWT_SECRET: &str = "0123456789ABCDEF0123456789ABCDEF";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn privileged_groups_are_recognised_case_insensitively() {
+        assert!(is_privileged_group("superadmin"));
+        assert!(is_privileged_group("  ADMIN  "));
+        assert!(!is_privileged_group("users"));
+        assert!(!is_privileged_group(""));
+    }
+
+    #[test]
+    fn min_jwt_secret_length_is_enforced_at_32() {
+        assert_eq!(MIN_JWT_SECRET_LENGTH, 32);
+    }
+
+    /// The default secret must exist only for tests and must be long enough to
+    /// pass the production length check, otherwise tests would fail startup.
+    #[test]
+    fn test_default_secret_meets_minimum_length() {
+        assert!(DEFAULT_JWT_SECRET.len() >= MIN_JWT_SECRET_LENGTH);
+    }
+}

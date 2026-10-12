@@ -9,13 +9,16 @@ use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
 use keyrunes::api;
+use keyrunes::constants::MIN_JWT_SECRET_LENGTH;
 use keyrunes::repository;
 use keyrunes::services;
 use keyrunes::views;
 
 use keyrunes::handler::auth::{require_auth, require_org_key_or_superadmin, require_superadmin};
 use keyrunes::handler::errors::handler_404;
-use keyrunes::handler::logging::{LogLevel, init_logging, request_logging_middleware};
+use keyrunes::handler::logging::{
+    LogLevel, init_logging, request_logging_middleware, security_headers_middleware,
+};
 
 use keyrunes::repository::sqlx_impl::PgOrganizationRepository;
 use keyrunes::repository::sqlx_impl::PgSettingsRepository;
@@ -32,6 +35,24 @@ use services::{
 use crate::api::openapi::ApiDoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+/// Router for the OpenAPI spec and Swagger UI.
+///
+/// SECURITY: exposed only in debug builds. In release it is replaced by an
+/// empty router so the full API surface (including admin routes) is not handed
+/// to anonymous reconnaissance.
+fn swagger_router() -> axum::Router {
+    #[cfg(debug_assertions)]
+    {
+        SwaggerUi::new("/swagger-ui")
+            .url("/api-docs/openapi.json", ApiDoc::openapi())
+            .into()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        axum::Router::new()
+    }
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -76,10 +97,23 @@ async fn main() -> anyhow::Result<()> {
     let password_reset_repo = Arc::new(PgPasswordResetRepository::new(pool.clone()));
     let organization_repo = Arc::new(PgOrganizationRepository::new(pool.clone()));
 
+    // SECURITY: never fall back to a hardcoded secret. A default secret allows
+    // anyone to forge a superadmin JWT and take over every tenant (auth bypass,
+    // CVSS 9.8). Refuse to start without an explicit, sufficiently long secret.
     let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
-        tracing::warn!("⚠️  JWT_SECRET not sent, starting default token (DON'T USE IN PRODUCTION)");
-        "your-super-secret-jwt-key-change-in-production".into()
+        panic!(
+            "JWT_SECRET environment variable is required and must be at least {} bytes. \
+             Generate one with: openssl rand -base64 48",
+            MIN_JWT_SECRET_LENGTH
+        )
     });
+    if jwt_secret.len() < MIN_JWT_SECRET_LENGTH {
+        panic!(
+            "JWT_SECRET must be at least {} bytes long (got {}); refusing to start with a weak secret.",
+            MIN_JWT_SECRET_LENGTH,
+            jwt_secret.len()
+        );
+    }
     let jwt_service = Arc::new(JwtService::new(&jwt_secret));
     let settings_repo = Arc::new(PgSettingsRepository::new(pool.clone()));
     let settings_service = Arc::new(SettingsService::new(settings_repo));
@@ -248,7 +282,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(admin_web_router)
         .merge(admin_router)
         .merge(external_api_router)
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(swagger_router())
         .fallback(handler_404)
         .layer(Extension(tera))
         .layer(Extension(user_service))
@@ -257,7 +291,8 @@ async fn main() -> anyhow::Result<()> {
         .layer(Extension(organization_service))
         .layer(Extension(jwt_service))
         .layer(Extension(pool))
-        .layer(from_fn(request_logging_middleware));
+        .layer(from_fn(request_logging_middleware))
+        .layer(from_fn(security_headers_middleware));
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("0.0.0.0:{}", port);
