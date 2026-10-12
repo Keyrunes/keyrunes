@@ -486,10 +486,33 @@
     }
   }
 
+  // Escape a value before interpolating it into an HTML template string.
+  // SECURITY: usernames/e-mails/groups come from user-controlled data and are
+  // rendered with innerHTML, so they MUST be escaped to prevent stored XSS.
+  function escapeHtml(value) {
+    return String(value === null || value === undefined ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Escape a value for use inside a single-quoted JS string in an HTML
+  // attribute (e.g. onclick="fn('...')").
+  function escapeJs(value) {
+    return String(value === null || value === undefined ? '' : value)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r');
+  }
+
   function showMessage(text, type) {
     const messagesDiv = document.getElementById('messages');
     const messageClass = type === 'success' ? 'message-success' : 'message-error';
-    messagesDiv.innerHTML = `<div class="message ${messageClass}">${text}</div>`;
+    messagesDiv.innerHTML = `<div class="message ${messageClass}">${escapeHtml(text)}</div>`;
     setTimeout(() => {
       messagesDiv.innerHTML = '';
     }, 5000);
@@ -509,14 +532,14 @@
             const groups = user.groups || [];
             const groupsDisplay = groups.length > 0
               ? groups.map(group => {
-                // Escape group name for JavaScript string
-                const escapedGroup = String(group).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n');
+                const safeGroupHtml = escapeHtml(String(group));
+                const jsGroup = escapeJs(String(group));
                 return `
               <span style="display: inline-block; margin: 2px; padding: 4px 8px; background: var(--card-bg, #f0f0f0); border-radius: 4px;">
-                ${group}
-                <button onclick="removeUserFromGroup(${user.user_id}, '${escapedGroup}')" 
+                ${safeGroupHtml}
+                <button onclick="removeUserFromGroup(${user.user_id}, '${jsGroup}')" 
                         style="margin-left: 4px; padding: 2px 6px; font-size: 0.8em; background: var(--error-bg, #f8d7da); border: none; border-radius: 3px; cursor: pointer;"
-                        title="Remove from ${group}">×</button>
+                        title="Remove from ${safeGroupHtml}">×</button>
               </span>
             `;
               }).join('')
@@ -525,14 +548,14 @@
             return `
         <tr>
           <td>${user.user_id}</td>
-          <td>${user.username}</td>
-          <td>${user.email}</td>
+          <td>${escapeHtml(user.username)}</td>
+          <td>${escapeHtml(user.email)}</td>
           <td>${groupsDisplay}</td>
           <td>${new Date(user.created_at).toLocaleDateString()}</td>
           <td>
             <button onclick="showAssignGroupModal(${user.user_id})" class="btn-sm">Assign Group</button>
-            <button onclick="showEditUserModal(${user.user_id}, '${user.email}', '${user.username}', ${user.first_login})" class="btn-sm btn-primary" style="background: var(--primary, #007bff); color: white;">Edit</button>
-            <button onclick="deleteUser(${user.user_id}, '${user.username}')" class="btn-sm btn-danger" style="background-color: var(--error-bg, #f8d7da); color: var(--error-color, #721c24);">Delete</button>
+            <button onclick="showEditUserModal(${user.user_id}, '${escapeJs(user.email)}', '${escapeJs(user.username)}', ${user.first_login})" class="btn-sm btn-primary" style="background: var(--primary, #007bff); color: white;">Edit</button>
+            <button onclick="deleteUser(${user.user_id}, '${escapeJs(user.username)}')" class="btn-sm btn-danger" style="background-color: var(--error-bg, #f8d7da); color: var(--error-color, #721c24);">Delete</button>
             <div style="margin-top: 4px;">
                 <button onclick="resetUserPassword(${user.user_id})" class="btn-sm btn-warning" style="background: var(--warning, #ffc107); color: black;">Reset PWD</button>
                 <button onclick="sendResetEmail(${user.user_id})" class="btn-sm btn-info" style="background: var(--info, #17a2b8); color: white;">Send Email</button>
@@ -581,8 +604,8 @@
           tbody.innerHTML = groups.map(group => `
         <tr>
           <td>${group.group_id}</td>
-          <td>${group.name}</td>
-          <td>${group.description || 'N/A'}</td>
+          <td>${escapeHtml(group.name)}</td>
+          <td>${escapeHtml(group.description || 'N/A')}</td>
           <td>${new Date(group.created_at).toLocaleDateString()}</td>
           <td>-</td>
         </tr>
@@ -607,14 +630,14 @@
           tbody.innerHTML = orgs.map(org => `
         <tr>
           <td>${org.organization_id}</td>
-          <td>${org.name}</td>
-          <td>${org.description || 'N/A'}</td>
+          <td>${escapeHtml(org.name)}</td>
+          <td>${escapeHtml(org.description || 'N/A')}</td>
           <td>
-            <code id="key-${org.organization_id}">${org.secret_key}</code>
+            <code id="key-${org.organization_id}">${escapeHtml(org.secret_key)}</code>
           </td>
           <td>${new Date(org.created_at).toLocaleDateString()}</td>
           <td>
-            <button onclick="rotateKey(${org.organization_id}, '${org.name}')" 
+            <button onclick="rotateKey(${org.organization_id}, '${escapeJs(org.name)}')" 
                     class="btn-danger"
                     title="Generate new secret key">
               Rotate Key
