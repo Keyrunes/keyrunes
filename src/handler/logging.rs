@@ -1,4 +1,9 @@
-use axum::{extract::Request, middleware::Next, response::Response};
+use axum::{
+    extract::Request,
+    http::{header, HeaderValue},
+    middleware::Next,
+    response::Response,
+};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +109,38 @@ pub async fn request_logging_middleware(request: Request, next: Next) -> Respons
                 duration.as_millis()
             );
         }
+    }
+
+    response
+}
+
+/// Append baseline security headers to every response.
+///
+/// SECURITY: these mitigate clickjacking, MIME sniffing, referrer leakage and
+/// (in combination with the templates) XSS. HSTS is only meaningful over HTTPS,
+/// so it can be disabled for local HTTP development with `HSTS_DISABLED=1`.
+pub async fn security_headers_middleware(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    if std::env::var("HSTS_DISABLED").as_deref() != Ok("1") {
+        headers.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        );
     }
 
     response
