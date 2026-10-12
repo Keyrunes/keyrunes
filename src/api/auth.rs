@@ -69,7 +69,6 @@ pub struct ForgotPasswordApi {
 #[derive(Serialize, ToSchema)]
 pub struct ForgotPasswordResponse {
     pub message: String,
-    pub reset_url: String,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -150,7 +149,12 @@ pub async fn login_api(
         .await
     {
         Ok(auth_response) => (StatusCode::OK, Json(auth_response)).into_response(),
-        Err(e) => ErrorResponse::unauthorized(e.to_string()).into_response(),
+        // SECURITY: log the internal error, but never echo database/backend
+        // details (e.g. `relation "users" does not exist`) to the client.
+        Err(e) => {
+            tracing::warn!("login failed: {}", e);
+            ErrorResponse::unauthorized("Invalid credentials".to_string()).into_response()
+        }
     }
 }
 
@@ -271,20 +275,33 @@ pub async fn forgot_password_api(
     };
 
     match service.forgot_password(req, &payload.namespace).await {
-        Ok(token) => {
-            let reset_url = format!("?forgot_password={}", token);
-
+        Ok(_token) => {
+            // SECURITY: the reset token is delivered exclusively by e-mail from
+            // the service layer. Returning it in the HTTP response let any
+            // anonymous caller reset an arbitrary account's password (account
+            // takeover). Never put it back in the body.
             (
                 StatusCode::OK,
                 Json(ForgotPasswordResponse {
                     message: "If the email is registered, you will receive a reset link."
                         .to_string(),
-                    reset_url,
                 }),
             )
                 .into_response()
         }
-        Err(e) => ErrorResponse::bad_request(e.to_string()).into_response(),
+        // SECURITY: return the same generic response whether or not the e-mail
+        // exists, so the endpoint cannot be used to enumerate users.
+        Err(e) => {
+            tracing::debug!("forgot-password lookup failed: {}", e);
+            (
+                StatusCode::OK,
+                Json(ForgotPasswordResponse {
+                    message: "If the email is registered, you will receive a reset link."
+                        .to_string(),
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -418,5 +435,23 @@ mod tests {
 
         assert_eq!(payload.email, "test@example.com");
         assert_eq!(payload.username, "testuser");
+    }
+
+    /// SECURITY regression: the forgot-password response type must not carry
+    /// the reset token. This test fails to compile if `reset_url` returns,
+    /// and asserts the serialized body only contains the generic message.
+    #[test]
+    fn forgot_password_response_does_not_leak_token() {
+        let resp = ForgotPasswordResponse {
+            message: "If the email is registered, you will receive a reset link.".to_string(),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert!(json.get("reset_url").is_none());
+        assert!(json.get("token").is_none());
+        assert_eq!(
+            json.get("message").and_then(|m| m.as_str()),
+            Some("If the email is registered, you will receive a reset link.")
+        );
     }
 }
