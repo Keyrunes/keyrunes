@@ -6,6 +6,26 @@ use crate::repository::sqlx_impl::{
 use crate::services::user_service::{
     ChangePasswordRequest, RegisterRequest, UpdateProfileRequest, UserService,
 };
+
+/// Build the `jwt_token` session cookie.
+///
+/// SECURITY:
+/// - `Secure` is set by default so the cookie is never sent over plain HTTP
+///   (prevents session theft through downgrade/MITM). It can be disabled only
+///   for local development without TLS via `COOKIE_INSECURE=1`.
+/// - `SameSite=Lax` is used consistently (register used to differ from login).
+/// - `HttpOnly` keeps the token out of reach of JavaScript.
+fn session_cookie(token: &str) -> String {
+    let secure = if std::env::var("COOKIE_INSECURE").as_deref() == Ok("1") {
+        ""
+    } else {
+        "; Secure"
+    };
+    format!(
+        "jwt_token={}; Path=/; HttpOnly{}; SameSite=Lax; Max-Age=3600",
+        token, secure
+    )
+}
 use axum::{
     extract::{Extension, Form, Query},
     http::{HeaderMap, StatusCode},
@@ -86,10 +106,7 @@ pub async fn register_post(
             ctx.insert("user", &auth_response.user);
             ctx.insert("token", &auth_response.token);
 
-            let cookie_value = format!(
-                "jwt_token={}; Path=/; HttpOnly; SameSite=Strict",
-                auth_response.token
-            );
+            let cookie_value = session_cookie(&auth_response.token);
             let mut headers = HeaderMap::new();
             headers.insert(
                 axum::http::header::SET_COOKIE,
@@ -107,9 +124,11 @@ pub async fn register_post(
             (StatusCode::SEE_OTHER, headers, Redirect::to("/dashboard")).into_response()
         }
         Err(e) => {
+            // SECURITY: log server-side, show a generic message (no DB internals).
+            tracing::warn!("register failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Register");
-            ctx.insert("error", &format!("{e}"));
+            ctx.insert("error", "Registration failed. Please check your data and try again.");
             let body = tmpl.render("register.html", &ctx).unwrap();
             (StatusCode::BAD_REQUEST, Html(body)).into_response()
         }
@@ -135,10 +154,7 @@ pub async fn login_post(
         .await
     {
         Ok(auth_response) => {
-            let cookie_value = format!(
-                "jwt_token={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600",
-                auth_response.token
-            );
+            let cookie_value = session_cookie(&auth_response.token);
             let mut headers = HeaderMap::new();
             headers.insert(
                 axum::http::header::SET_COOKIE,
@@ -157,9 +173,12 @@ pub async fn login_post(
             (StatusCode::SEE_OTHER, headers, Redirect::to("/dashboard")).into_response()
         }
         Err(e) => {
+            // SECURITY: log detail server-side; show a generic message in the UI
+            // so database/backend errors are not leaked to the browser.
+            tracing::warn!("web login failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Login");
-            ctx.insert("error", &format!("{e}"));
+            ctx.insert("error", "Invalid credentials");
             let body = tmpl.render("login.html", &ctx).unwrap();
             (StatusCode::UNAUTHORIZED, Html(body)).into_response()
         }
@@ -229,9 +248,11 @@ pub async fn change_password_post(
     {
         Ok(_) => Redirect::to("/dashboard").into_response(),
         Err(e) => {
+            // SECURITY: log server-side, show a generic message (no DB internals).
+            tracing::warn!("change-password failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Change Password");
-            ctx.insert("error", &format!("{e}"));
+            ctx.insert("error", "Could not change password. Please try again.");
             let body = tmpl.render("change_password.html", &ctx).unwrap();
             (StatusCode::BAD_REQUEST, Html(body)).into_response()
         }
@@ -495,5 +516,31 @@ mod tests {
         headers.insert("authorization", HeaderValue::from_static("Bearer x"));
 
         assert_eq!(extract_bearer_token(&headers), Some("x".to_string()));
+    }
+
+    /// SECURITY regression: the session cookie must be HttpOnly, SameSite=Lax
+    /// and (by default) Secure so the token is not exposed to JS or sent over
+    /// plain HTTP. A single test covers both the secure default and the explicit
+    /// development opt-out, because `COOKIE_INSECURE` is process-global and
+    /// separate tests would race when run in parallel.
+    #[test]
+    fn session_cookie_hardening_and_opt_out() {
+        // SAFETY: this is the only test touching COOKIE_INSECURE, so the
+        // set/remove pair cannot race with another test.
+        unsafe { std::env::remove_var("COOKIE_INSECURE") };
+        let secure = session_cookie("tok123");
+        assert!(secure.starts_with("jwt_token=tok123;"));
+        assert!(secure.contains("HttpOnly"));
+        assert!(secure.contains("SameSite=Lax"));
+        assert!(secure.contains("Secure"));
+        assert!(secure.contains("Max-Age="));
+
+        unsafe { std::env::set_var("COOKIE_INSECURE", "1") };
+        let insecure = session_cookie("tok123");
+        assert!(!insecure.contains("Secure"));
+        assert!(insecure.contains("HttpOnly"));
+        assert!(insecure.contains("SameSite=Lax"));
+
+        unsafe { std::env::remove_var("COOKIE_INSECURE") };
     }
 }
