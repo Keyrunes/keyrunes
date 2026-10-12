@@ -161,6 +161,24 @@ impl JwtService {
         )
     }
 
+    /// Re-issues a token bound to an already-authenticated identity.
+    ///
+    /// Unlike [`Self::refresh_token`], this never trusts claims supplied by an
+    /// untrusted caller: the new token is always minted for `user_id`, and the
+    /// group list is supplied by the caller from a trusted source, so a revoked
+    /// or changed membership cannot be smuggled back in through an old token.
+    pub fn issue_token_for_user(
+        &self,
+        user_id: i64,
+        email: &str,
+        username: &str,
+        groups: Vec<String>,
+        namespace: &str,
+        organization_id: i64,
+    ) -> Result<String> {
+        self.generate_token(user_id, email, username, groups, namespace, organization_id)
+    }
+
     pub fn extract_user_id(&self, token: &str) -> Result<i64> {
         let claims = self.verify_token(token)?;
         claims
@@ -233,6 +251,34 @@ mod tests {
         assert_eq!(original_claims.email, refreshed_claims.email);
         assert_eq!(original_claims.namespace, refreshed_claims.namespace);
         assert!(refreshed_claims.exp > original_claims.exp);
+    }
+
+    /// A token minted for an authenticated identity must carry exactly that
+    /// identity, regardless of any token an attacker might have placed in the
+    /// request body. This guards the fix for VULN-07 (refresh-token escalation).
+    #[test]
+    fn issue_token_for_user_binds_to_supplied_identity() {
+        let service = JwtService::new("0123456789ABCDEF0123456789ABCDEF");
+
+        // The victim's identity (what the server resolved from the Bearer token).
+        let token = service
+            .issue_token_for_user(
+                7,
+                "victim@example.com",
+                "victim",
+                vec![USERS_GROUP.to_string()],
+                "public",
+                1,
+            )
+            .unwrap();
+
+        let claims = service.verify_token(&token).unwrap();
+        assert_eq!(claims.sub, "7");
+        assert_eq!(claims.email, "victim@example.com");
+        assert_eq!(claims.username, "victim");
+        assert_eq!(claims.groups, vec![USERS_GROUP.to_string()]);
+        assert_eq!(claims.namespace, "public");
+        assert_eq!(claims.organization_id, 1);
     }
 
     /// Sign a payload with `secret` without going through `generate_token`, so

@@ -6,6 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::handler::auth::AuthenticatedUser;
 use crate::handler::errors::ErrorResponse;
 use crate::repository::sqlx_impl::{
     PgGroupRepository, PgOrganizationRepository, PgPasswordResetRepository, PgSettingsRepository,
@@ -170,10 +171,19 @@ pub async fn login_api(
     tag = "auth"
 )]
 pub async fn refresh_token_api(
+    Extension(user): Extension<AuthenticatedUser>,
     Extension(service): Extension<Arc<UserServiceType>>,
-    Json(payload): Json<RefreshTokenRequest>,
+    _payload: Option<Json<RefreshTokenRequest>>,
 ) -> impl IntoResponse {
-    match service.refresh_token(&payload.token).await {
+    // The caller-supplied `token` in the body is intentionally ignored: the
+    // refreshed token is always minted for the identity carried by the verified
+    // Bearer token. Trusting the body would let any authenticated user mint a
+    // token for any other user whose token leaked (privilege escalation and
+    // session persistence). See security advisory VULN-07.
+    match service
+        .refresh_token_for_user(user.user_id, &user.namespace)
+        .await
+    {
         Ok(new_token) => (
             StatusCode::OK,
             Json(RefreshTokenResponse { token: new_token }),

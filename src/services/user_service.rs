@@ -614,6 +614,31 @@ impl<
         self.jwt_service.refresh_token(token)
     }
 
+    /// Issues a fresh token for an already-authenticated user.
+    ///
+    /// The identity (`user_id`, `namespace`) comes from the verified Bearer
+    /// token, never from a caller-supplied token in the request body. The user
+    /// row and the group list are re-read from the database, so a stale token
+    /// whose membership changed (or was revoked) is not honoured.
+    pub async fn refresh_token_for_user(&self, user_id: i64, namespace: &str) -> Result<String> {
+        let user = self
+            .user_repo
+            .find_by_id(user_id, namespace)
+            .await?
+            .ok_or_else(|| anyhow!("user not found"))?;
+
+        let groups = self.get_user_group_names(user.user_id, namespace).await?;
+
+        self.jwt_service.issue_token_for_user(
+            user.user_id,
+            &user.email,
+            &user.username,
+            groups,
+            namespace,
+            user.organization_id,
+        )
+    }
+
     /// Retrieves user information based on a valid JWT token.
     pub async fn get_user_by_token(&self, token: &str) -> Result<UserResponse> {
         let claims = self.jwt_service.verify_token(token)?;
