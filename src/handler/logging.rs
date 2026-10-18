@@ -1,6 +1,6 @@
 use axum::{
     extract::Request,
-    http::{header, HeaderValue},
+    http::{HeaderValue, header},
     middleware::Next,
     response::Response,
 };
@@ -127,10 +127,7 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(
-        header::X_FRAME_OPTIONS,
-        HeaderValue::from_static("DENY"),
-    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     headers.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),

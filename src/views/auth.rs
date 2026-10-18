@@ -128,7 +128,10 @@ pub async fn register_post(
             tracing::warn!("register failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Register");
-            ctx.insert("error", "Registration failed. Please check your data and try again.");
+            ctx.insert(
+                "error",
+                "Registration failed. Please check your data and try again.",
+            );
             let body = tmpl.render("register.html", &ctx).unwrap();
             (StatusCode::BAD_REQUEST, Html(body)).into_response()
         }
