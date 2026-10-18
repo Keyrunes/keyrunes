@@ -8,6 +8,18 @@ ignore = [
     # KeyRunes does not use scc directly; only via serial_test dev-dependency.
     # Re-check: 2026-10-14 (90 days) — remove if serial_test 3.x stable.
     "RUSTSEC-2026-0205",
+
+    # zip: RUSTSEC-2026-0367 (7.3 high), -0368, -0369 (9.1 critical) — unsafe
+    # ZipArchive::extract()/ZipStreamReader::extract() (SUID/SGID preservation,
+    # symlink traversal, permissions applied through symlinks). Fix: zip >= 9.0.0.
+    # Not reachable: zip is a BUILD-dependency of utoipa-swagger-ui 9.0.2, used
+    # only at build time to unpack the bundled, trusted Swagger UI archive — never
+    # runtime, never attacker-controlled input. No release of utoipa-swagger-ui
+    # pulls zip >= 9.0.0 yet (10.0.1 still uses zip 8.6.0, also < 9).
+    # Re-check: 2026-11-18 — drop once utoipa-swagger-ui ships zip >= 9.0.0.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]
 
 # spin yanked warning: 0.9.8 yanked but still pulled in by lazy_static 1.5.0 and flume 0.11.x.
