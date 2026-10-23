@@ -160,7 +160,12 @@ async fn main() -> anyhow::Result<()> {
     let jwt_secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "your-super-secret-jwt-key-change-in-production".into());
 
-    let _tera = Arc::new(Tera::new("templates/**/*").expect("Failed to load templates"));
+    let _tera = Arc::new({
+        let mut tera = Tera::new();
+        tera.load_from_glob("templates/**/*")
+            .expect("Failed to load templates");
+        tera
+    });
 
     let jwt_service = Arc::new(JwtService::new(&jwt_secret));
     let settings_repo = Arc::new(PgSettingsRepository::new(pool.clone()));

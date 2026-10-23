@@ -1,6 +1,5 @@
 use axum::{Json, extract::Extension, http::StatusCode, response::IntoResponse};
 use chrono::Utc;
-use password_hash::rand_core::OsRng;
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 use std::time::SystemTime;
@@ -189,16 +188,15 @@ pub fn test_jwt_service() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn test_password_hashing() -> Result<(), Box<dyn std::error::Error>> {
     use argon2::{Argon2, password_hash::PasswordHasher};
-    use password_hash::{PasswordHash, PasswordVerifier, SaltString};
+    use password_hash::{PasswordVerifier, phc::PasswordHash};
     use std::io;
 
     let password = "test_password";
 
-    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
 
     let hash = argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| Box::new(io::Error::other(format!("password hash error: {}", e))))?;
 
     let binding = hash.to_string();

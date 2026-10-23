@@ -7,13 +7,10 @@ use crate::repository::{
 use crate::services::email_service::EmailService;
 use crate::services::jwt_service::JwtService;
 use anyhow::{Result, anyhow};
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHasher, SaltString},
-};
+use argon2::{Argon2, password_hash::PasswordHasher};
 use chrono::{Duration, Utc};
-use password_hash::rand_core::{OsRng, RngCore};
-use password_hash::{PasswordHash, PasswordVerifier};
+use password_hash::{PasswordVerifier, phc::PasswordHash};
+use rand::{Rng, RngExt};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -404,10 +401,9 @@ impl<
 
         let _ = Password::try_from(req.new_password.as_str())?;
 
-        let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         let new_hash = argon2
-            .hash_password(req.new_password.as_bytes(), &salt)
+            .hash_password(req.new_password.as_bytes())
             .map_err(|e| anyhow!("Failed to hash password: {}", e))?
             .to_string();
 
@@ -737,10 +733,9 @@ impl<
     ) -> Result<PasswordResetResponse> {
         let temp_password = self.generate_temp_password();
 
-        let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         let password_hash = argon2
-            .hash_password(temp_password.as_bytes(), &salt)
+            .hash_password(temp_password.as_bytes())
             .map_err(|e| anyhow!("Failed to hash password: {}", e))?
             .to_string();
 
@@ -759,14 +754,14 @@ impl<
 
     /// Generates a secure temporary password.
     fn generate_temp_password(&self) -> String {
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let charset = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                         abcdefghijklmnopqrstuvwxyz\
                         0123456789\
                         )(*&^%$#@!~";
         (0..12)
             .map(|_| {
-                let idx = rng.next_u32() as usize % charset.len();
+                let idx = rng.random_range(0..charset.len());
                 charset[idx] as char
             })
             .collect()
@@ -774,19 +769,16 @@ impl<
 
     /// Hashes a plain-text password using Argon2.
     fn hash_password(&self, password: &str) -> Result<String> {
-        let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         Ok(argon2
-            .hash_password(password.as_bytes(), &salt)
+            .hash_password(password.as_bytes())
             .map_err(|e| anyhow!("Failed to hash password: {}", e))?
             .to_string())
     }
 
     fn generate_reset_token(&self) -> Result<String> {
         let mut bytes = [0u8; 32];
-        OsRng
-            .try_fill_bytes(&mut bytes)
-            .map_err(|e| anyhow!("failed to fill bytes: {}", e))?;
+        rand::rng().fill_bytes(&mut bytes);
         Ok(hex::encode(bytes))
     }
 

@@ -118,7 +118,9 @@ async fn main() -> anyhow::Result<()> {
     let settings_repo = Arc::new(PgSettingsRepository::new(pool.clone()));
     let settings_service = Arc::new(SettingsService::new(settings_repo));
 
-    let tera = Tera::new("templates/**/*").expect("Error to load templates");
+    let mut tera = Tera::new();
+    tera.load_from_glob("templates/**/*")
+        .expect("Error to load templates");
     tracing::info!("✅ Templates loaded with success");
 
     let email_service = match EmailService::from_env(tera.clone().into()) {

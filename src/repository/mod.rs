@@ -6,6 +6,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
+/// Builds a `SET LOCAL search_path` statement for a tenant `namespace`.
+///
+/// The namespace is a PostgreSQL identifier, which cannot be bound as a query
+/// parameter, so it is interpolated — quoted as an identifier with any embedded
+/// `"` doubled per the PostgreSQL rules. sqlx 0.9 requires the `AssertSqlSafe`
+/// opt-in for a non-`'static` query string; the escaping here is what makes
+/// that assertion actually hold on the tenant-isolation boundary.
+pub(crate) fn set_search_path_sql(namespace: &str) -> sqlx::AssertSqlSafe<String> {
+    sqlx::AssertSqlSafe(format!(
+        "SET LOCAL search_path TO \"{}\"",
+        namespace.replace('"', "\"\"")
+    ))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct User {
     pub user_id: i64,

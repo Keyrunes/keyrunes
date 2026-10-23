@@ -60,7 +60,9 @@ async fn create_test_app() -> Router {
         None,
     ));
 
-    let tera = Tera::new("templates/**/*").expect("Error loading templates");
+    let mut tera = Tera::new();
+    tera.load_from_glob("templates/**/*")
+        .expect("Error loading templates");
 
     Router::new()
         .route("/api/health", get(api::health::health_check))

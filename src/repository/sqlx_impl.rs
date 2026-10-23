@@ -19,7 +19,7 @@ impl PgUserRepository {
 impl UserRepository for PgUserRepository {
     async fn find_by_email(&self, email: &str, namespace: &str) -> Result<Option<User>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -36,7 +36,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_username(&self, username: &str, namespace: &str) -> Result<Option<User>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -53,7 +53,7 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_id(&self, user_id: i64, namespace: &str) -> Result<Option<User>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -70,7 +70,7 @@ impl UserRepository for PgUserRepository {
 
     async fn insert_user(&self, new_user: NewUser, namespace: &str) -> Result<User> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -97,7 +97,7 @@ impl UserRepository for PgUserRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -120,7 +120,7 @@ impl UserRepository for PgUserRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -143,7 +143,7 @@ impl UserRepository for PgUserRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -160,7 +160,7 @@ impl UserRepository for PgUserRepository {
 
     async fn get_user_groups(&self, user_id: i64, namespace: &str) -> Result<Vec<Group>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -180,7 +180,7 @@ impl UserRepository for PgUserRepository {
 
     async fn get_user_policies(&self, user_id: i64, namespace: &str) -> Result<Vec<Policy>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -223,7 +223,7 @@ impl UserRepository for PgUserRepository {
 
     async fn get_user_all_policies(&self, user_id: i64, namespace: &str) -> Result<Vec<Policy>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -249,7 +249,7 @@ impl UserRepository for PgUserRepository {
 
     async fn count_users(&self, namespace: &str) -> Result<i64> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -264,7 +264,7 @@ impl UserRepository for PgUserRepository {
 
     async fn delete_user(&self, user_id: i64, namespace: &str) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -303,7 +303,7 @@ impl SettingsRepository for PgSettingsRepository {
         namespace: &str,
     ) -> Result<Option<CreateSettings>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -345,7 +345,7 @@ impl SettingsRepository for PgSettingsRepository {
 
     async fn get_settings_by_key(&self, key: &str, namespace: &str) -> Result<Option<Settings>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -379,7 +379,7 @@ impl SettingsRepository for PgSettingsRepository {
         namespace: &str,
     ) -> Result<Option<Settings>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -422,7 +422,7 @@ impl SettingsRepository for PgSettingsRepository {
 
     async fn get_all_settings(&self, namespace: &str) -> Result<Vec<Settings>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -451,7 +451,7 @@ impl SettingsRepository for PgSettingsRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -479,7 +479,7 @@ impl SettingsRepository for PgSettingsRepository {
 
     async fn delete_settings_by_key(&self, key: &str, namespace: &str) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -517,7 +517,7 @@ impl GroupRepository for PgGroupRepository {
         namespace: &str,
     ) -> Result<Option<Group>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -535,7 +535,7 @@ impl GroupRepository for PgGroupRepository {
 
     async fn find_by_id(&self, group_id: i64, namespace: &str) -> Result<Option<Group>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -552,7 +552,7 @@ impl GroupRepository for PgGroupRepository {
 
     async fn insert_group(&self, new_group: NewGroup, namespace: &str) -> Result<Group> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -574,7 +574,7 @@ impl GroupRepository for PgGroupRepository {
 
     async fn list_groups(&self, organization_id: i64, namespace: &str) -> Result<Vec<Group>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -597,7 +597,7 @@ impl GroupRepository for PgGroupRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -620,7 +620,7 @@ impl GroupRepository for PgGroupRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -637,7 +637,7 @@ impl GroupRepository for PgGroupRepository {
 
     async fn get_group_policies(&self, group_id: i64, namespace: &str) -> Result<Vec<Policy>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -700,7 +700,7 @@ impl PolicyRepository for PgPolicyRepository {
         namespace: &str,
     ) -> Result<Option<Policy>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -742,7 +742,7 @@ impl PolicyRepository for PgPolicyRepository {
 
     async fn find_by_id(&self, policy_id: i64, namespace: &str) -> Result<Option<Policy>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -783,7 +783,7 @@ impl PolicyRepository for PgPolicyRepository {
 
     async fn insert_policy(&self, new_policy: NewPolicy, namespace: &str) -> Result<Policy> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -829,7 +829,7 @@ impl PolicyRepository for PgPolicyRepository {
 
     async fn list_policies(&self, organization_id: i64, namespace: &str) -> Result<Vec<Policy>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -876,7 +876,7 @@ impl PolicyRepository for PgPolicyRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -900,7 +900,7 @@ impl PolicyRepository for PgPolicyRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -923,7 +923,7 @@ impl PolicyRepository for PgPolicyRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -945,7 +945,7 @@ impl PolicyRepository for PgPolicyRepository {
         namespace: &str,
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -979,7 +979,7 @@ impl PasswordResetRepository for PgPasswordResetRepository {
         namespace: &str,
     ) -> Result<PasswordResetToken> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -1004,7 +1004,7 @@ impl PasswordResetRepository for PgPasswordResetRepository {
         namespace: &str,
     ) -> Result<Option<PasswordResetToken>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -1023,7 +1023,7 @@ impl PasswordResetRepository for PgPasswordResetRepository {
 
     async fn mark_token_used(&self, token_id: i64, namespace: &str) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -1039,7 +1039,7 @@ impl PasswordResetRepository for PgPasswordResetRepository {
 
     async fn cleanup_expired_tokens(&self, namespace: &str) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query(&format!("SET LOCAL search_path TO \"{}\"", namespace))
+        sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
@@ -1115,32 +1115,42 @@ impl OrganizationRepository for PgOrganizationRepository {
             return Err(anyhow::anyhow!("Invalid namespace: {}", schema_name));
         }
 
+        // `schema_name` was validated above to be `[A-Za-z0-9_]+`, so the
+        // interpolations below carry no injection vector; the tenant init
+        // script is a trusted `include_str!` file with only `__ORG_ID__`
+        // (an i64) substituted. sqlx 0.9 still requires the `AssertSqlSafe`
+        // opt-in for these non-static query strings.
         let create_schema_query = format!("CREATE SCHEMA IF NOT EXISTS \"{}\"", schema_name);
-        sqlx::query(&create_schema_query).execute(&mut *tx).await?;
+        sqlx::query(sqlx::AssertSqlSafe(create_schema_query))
+            .execute(&mut *tx)
+            .await?;
 
-        let set_path_query = format!("SET LOCAL search_path TO \"{}\"", schema_name);
-        sqlx::query(&set_path_query).execute(&mut *tx).await?;
+        sqlx::query(set_search_path_sql(schema_name))
+            .execute(&mut *tx)
+            .await?;
 
         let init_script = include_str!("../../migrations/tenant/001_init_tenant.sql");
         let populated_script = init_script.replace("__ORG_ID__", &rec.organization_id.to_string());
         for statement in populated_script.split(';') {
             let trimmed = statement.trim();
             if !trimmed.is_empty() {
-                sqlx::query(trimmed).execute(&mut *tx).await?;
+                sqlx::query(sqlx::AssertSqlSafe(trimmed))
+                    .execute(&mut *tx)
+                    .await?;
             }
         }
 
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "ALTER TABLE \"{}\".groups DROP CONSTRAINT IF EXISTS groups_name_key",
             schema_name
-        ))
+        )))
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "ALTER TABLE \"{}\".groups ADD CONSTRAINT groups_name_org_key UNIQUE (name, organization_id)",
             schema_name
-        ))
+        )))
         .execute(&mut *tx)
         .await
         .ok();

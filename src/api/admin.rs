@@ -202,8 +202,10 @@ pub async fn list_users(
         }
     };
 
-    let set_path_query = format!("SET LOCAL search_path TO \"{}\"", namespace);
-    if let Err(e) = sqlx::query(&set_path_query).execute(&mut *tx).await {
+    if let Err(e) = sqlx::query(crate::repository::set_search_path_sql(&namespace))
+        .execute(&mut *tx)
+        .await
+    {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),

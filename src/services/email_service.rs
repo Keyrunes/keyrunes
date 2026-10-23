@@ -92,7 +92,10 @@ mod tests {
     use serial_test::serial;
 
     fn create_test_tera() -> Arc<Tera> {
-        Arc::new(Tera::new("templates/**/*").expect("Failed to load templates"))
+        let mut tera = Tera::new();
+        tera.load_from_glob("templates/**/*")
+            .expect("Failed to load templates");
+        Arc::new(tera)
     }
 
     #[test]
