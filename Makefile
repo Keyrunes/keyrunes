@@ -117,7 +117,7 @@ test-stress: ## Runs Goose stress tests (requires server running)
 		echo "Server is not running! Run 'make run' first."; \
 		exit 1; \
 	fi
-	cargo test --test stress_test -- --host http://localhost:3000
+	cargo test --test stress_test -- --ignored --test-threads=1
 
 ## SQLx
 sqlx-prepare: ## Prepares SQLx metadata offline
