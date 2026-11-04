@@ -97,7 +97,12 @@ type UserServiceType = UserService<
     PgOrganizationRepository,
 >;
 
-/// POST /api/register
+/// POST /api/register - create a user through the public JSON API.
+///
+/// # Security
+/// Delegates to [`UserService::register`], which enforces the namespace and
+/// organization binding (C11-008), refuses caller-named privileged groups and
+/// only bootstraps the first user of a still-empty namespace.
 #[utoipa::path(
     post,
     path = "/api/register",
@@ -130,7 +135,12 @@ pub async fn register_api(
     }
 }
 
-/// POST /api/login
+/// POST /api/login - exchange credentials for a JWT.
+///
+/// # Security
+/// Internal failures are logged server-side only; the client always receives
+/// the generic `Invalid credentials`, so database/backend errors (e.g.
+/// `relation "users" does not exist`) are never echoed.
 #[utoipa::path(
     post,
     path = "/api/login",
@@ -150,8 +160,6 @@ pub async fn login_api(
         .await
     {
         Ok(auth_response) => (StatusCode::OK, Json(auth_response)).into_response(),
-        // SECURITY: log the internal error, but never echo database/backend
-        // details (e.g. `relation "users" does not exist`) to the client.
         Err(e) => {
             tracing::warn!("login failed: {}", e);
             ErrorResponse::unauthorized("Invalid credentials".to_string()).into_response()
@@ -159,7 +167,13 @@ pub async fn login_api(
     }
 }
 
-/// POST /api/refresh-token
+/// POST /api/refresh-token - reissue the caller's JWT.
+///
+/// # Security (VULN-07)
+/// The `token` field in the body is intentionally ignored: the refreshed token
+/// is always minted for the identity carried by the verified Bearer token.
+/// Trusting the body would let any authenticated user mint a token for
+/// another user whose token leaked.
 #[utoipa::path(
     post,
     path = "/api/refresh-token",
@@ -175,11 +189,6 @@ pub async fn refresh_token_api(
     Extension(service): Extension<Arc<UserServiceType>>,
     _payload: Option<Json<RefreshTokenRequest>>,
 ) -> impl IntoResponse {
-    // The caller-supplied `token` in the body is intentionally ignored: the
-    // refreshed token is always minted for the identity carried by the verified
-    // Bearer token. Trusting the body would let any authenticated user mint a
-    // token for any other user whose token leaked (privilege escalation and
-    // session persistence). See security advisory VULN-07.
     match service
         .refresh_token_for_user(user.user_id, &user.namespace)
         .await
@@ -265,7 +274,14 @@ pub async fn change_password_api(
     }
 }
 
-/// POST /api/forgot-password
+/// POST /api/forgot-password - start a password reset.
+///
+/// # Security
+/// - The reset token is delivered exclusively by e-mail from the service
+///   layer; it is never returned in the HTTP response (its presence there let
+///   any anonymous caller take over an account).
+/// - The same generic message answers whether or not the e-mail exists, so
+///   the endpoint cannot be used to enumerate users.
 #[utoipa::path(
     post,
     path = "/api/forgot-password",
@@ -285,22 +301,13 @@ pub async fn forgot_password_api(
     };
 
     match service.forgot_password(req, &payload.namespace).await {
-        Ok(_token) => {
-            // SECURITY: the reset token is delivered exclusively by e-mail from
-            // the service layer. Returning it in the HTTP response let any
-            // anonymous caller reset an arbitrary account's password (account
-            // takeover). Never put it back in the body.
-            (
-                StatusCode::OK,
-                Json(ForgotPasswordResponse {
-                    message: "If the email is registered, you will receive a reset link."
-                        .to_string(),
-                }),
-            )
-                .into_response()
-        }
-        // SECURITY: return the same generic response whether or not the e-mail
-        // exists, so the endpoint cannot be used to enumerate users.
+        Ok(_token) => (
+            StatusCode::OK,
+            Json(ForgotPasswordResponse {
+                message: "If the email is registered, you will receive a reset link.".to_string(),
+            }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::debug!("forgot-password lookup failed: {}", e);
             (

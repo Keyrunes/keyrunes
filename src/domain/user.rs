@@ -4,12 +4,15 @@ use regex::Regex;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 
+/// Validates an e-mail address (`local@domain.tld`) at the type boundary.
 #[derive(Debug, Clone)]
 pub struct Email(String);
 
 impl TryFrom<&str> for Email {
     type Error = anyhow::Error;
 
+    /// Accepts the shape `^[\w.+-]+@[\w-]+\.[\w.-]+$` and stores the address
+    /// verbatim; anything else is rejected.
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let email_re = Regex::new(r"^[\w.+-]+@[\w-]+\.[\w.-]+$").unwrap();
         if !email_re.is_match(value) {
@@ -41,6 +44,8 @@ impl AsRef<str> for Email {
     }
 }
 
+/// A password held in a [`SecretString`] so it is zeroed on drop and never
+/// printed by `Debug`.
 #[derive(Debug, Clone)]
 pub struct Password(SecretString);
 
@@ -68,6 +73,10 @@ impl<'de> Deserialize<'de> for Password {
 }
 
 impl Password {
+    /// Reveal the plain-text password to hashing/verification call sites.
+    ///
+    /// The borrow cannot outlive the [`Password`], so the secret is zeroed
+    /// with the owner; treat the returned slice as sensitive.
     pub fn expose(&self) -> &str {
         self.0.expose_secret()
     }

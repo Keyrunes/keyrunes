@@ -1,5 +1,8 @@
 use serde::{Deserialize, Deserializer};
 
+/// Deserialize an `i64` sent either as a JSON number (`2`) or as a string
+/// (`"2"`): HTML form bodies submit every field as a string, while JSON
+/// clients send real numbers, and both must land on the same field.
 pub fn deserialize_string_or_number<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
     D: Deserializer<'de>,
@@ -17,6 +20,8 @@ where
     }
 }
 
+/// Deserialize a `bool` sent either as `true`/`false` or as the form strings
+/// `true|1|on` (truthy) and `false|0|off|""` (falsy).
 pub fn deserialize_string_or_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
@@ -38,6 +43,9 @@ where
     }
 }
 
+/// Optional variant of [`deserialize_string_or_number`]: a present field must
+/// parse as `i64` (number or numeric string); an absent or empty one yields
+/// `None`.
 pub fn deserialize_option_string_or_number<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
 where
     D: Deserializer<'de>,

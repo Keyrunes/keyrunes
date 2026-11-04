@@ -42,7 +42,6 @@ impl<O: OrganizationRepository, G: GroupRepository> OrganizationService<O, G> {
             return Err(anyhow!("organization already exists"));
         }
 
-        // Basic validation for namespace
         if !req
             .namespace
             .chars()
@@ -62,7 +61,6 @@ impl<O: OrganizationRepository, G: GroupRepository> OrganizationService<O, G> {
 
         let org = self.repo.insert_organization(new_org).await?;
 
-        // Create default groups if they don't exist
         for group_name in [ADMIN_GROUP, USERS_GROUP] {
             if self
                 .group_repo
@@ -259,7 +257,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_organization_with_default_groups() {
-        // Setup
         let org_repo = Arc::new(MockOrgRepository::new());
         let group_repo = Arc::new(MockGroupRepository::new());
         let service = OrganizationService::new(org_repo, group_repo.clone());
@@ -271,7 +268,6 @@ mod tests {
             description: Some("Test Description".to_string()),
         };
 
-        // Act
         let org = service.create_organization(req).await.unwrap();
 
         // Assert organization properties

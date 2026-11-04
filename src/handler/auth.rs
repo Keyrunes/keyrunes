@@ -16,14 +16,22 @@ use crate::services::jwt_service::{Claims, JwtService};
 use crate::services::organization_service::OrganizationService;
 use uuid::Uuid;
 
+/// Identity of the caller, reconstructed from a verified JWT and injected
+/// into requests by the auth middlewares.
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct AuthenticatedUser {
+    /// Primary key of the user row inside its namespace schema.
     pub user_id: i64,
+    /// E-mail claim (`email`).
     pub email: String,
+    /// Username claim (`username`).
     pub username: String,
+    /// Group names the caller belongs to inside [`Self::namespace`].
     pub groups: Vec<String>,
+    /// Tenant schema the token is bound to (`public` for the global one).
     pub namespace: String,
+    /// Organization the caller belongs to inside [`Self::namespace`].
     pub organization_id: i64,
 }
 
@@ -145,13 +153,22 @@ pub async fn require_superadmin(
 
 use crate::domain::organization::Organization;
 
+/// Authorization context injected by [`require_org_key_or_superadmin`]:
+/// either a validated organization API key or a verified global superadmin.
 #[derive(Clone)]
 pub enum ApiAuthContext {
     Organization(Organization),
     Superadmin(AuthenticatedUser),
 }
 
-/// Middleware that requires X-Organization-Key header OR superadmin permissions
+/// Middleware that requires an `X-Organization-Key` header OR a *global*
+/// superadmin bearer token.
+///
+/// # Security
+/// C11-007: only a *global* superadmin (namespace `public` + `superadmin`
+/// group, see [`AuthenticatedUser::is_global_superadmin`]) may bypass the
+/// organization key. A tenant-scoped token carrying a locally minted
+/// `superadmin` group must not reach this branch.
 pub async fn require_org_key_or_superadmin(
     Extension(org_service): Extension<
         Arc<OrganizationService<PgOrganizationRepository, PgGroupRepository>>,
@@ -194,9 +211,6 @@ pub async fn require_org_key_or_superadmin(
         && let Ok(claims) = jwt_service.verify_token(&token)
     {
         let user = AuthenticatedUser::from(claims);
-        // SECURITY (C11-007): only a *global* superadmin may bypass the
-        // organization key. A tenant-scoped token carrying a locally minted
-        // `superadmin` group must not reach this branch.
         if user.is_global_superadmin() {
             request
                 .extensions_mut()

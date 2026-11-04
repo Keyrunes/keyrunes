@@ -338,7 +338,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_policy() {
-        // Setup
         let repo = Arc::new(MockPolicyRepository::new());
         let service = PolicyService::new(repo);
 
@@ -352,10 +351,8 @@ mod tests {
             conditions: None,
         };
 
-        // Act
         let policy = service.create_policy(req, DEFAULT_NAMESPACE).await.unwrap();
 
-        // Assert
         assert_eq!(policy.name, "test_policy");
         assert_eq!(policy.resource, "user:*");
         assert_eq!(policy.action, "read");
@@ -364,7 +361,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_permission() {
-        // Setup
         let repo = Arc::new(MockPolicyRepository::new());
         let service = PolicyService::new(repo);
 
@@ -397,7 +393,6 @@ mod tests {
             },
         ];
 
-        // Act & Assert
         assert!(
             service
                 .evaluate_permission(&policies, "user:123", "read")
@@ -687,7 +682,6 @@ mod tests {
     /// `Ok(vec![])` and the database-free suite stayed green.
     #[tokio::test]
     async fn the_read_paths_return_what_the_repository_holds() {
-        // Setup
         let service = PolicyService::new(Arc::new(MockPolicyRepository::new()));
         let created = service
             .create_policy(
@@ -705,7 +699,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Act & Assert
         let by_name = service
             .get_policy_by_name(
                 "reports_reader",
@@ -791,7 +784,6 @@ mod tests {
     /// silently does not, is exactly the failure this service must not have.
     #[tokio::test]
     async fn assigning_and_revoking_reach_the_repository() {
-        // Setup
         let repo = Arc::new(MockPolicyRepository::new());
         let service = PolicyService::new(Arc::clone(&repo));
         let first = stored_policy(&service, "first").await;
@@ -807,7 +799,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Assert
         assert_eq!(
             *repo.user_policies.lock().unwrap(),
             vec![(1, first)],
@@ -829,7 +820,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Assert
         assert!(
             repo.user_policies.lock().unwrap().is_empty(),
             "the user revocation never reached the repository"
