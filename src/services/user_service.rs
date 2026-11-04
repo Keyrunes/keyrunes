@@ -235,19 +235,25 @@ impl<
         })
     }
 
-    /// Registers a new user. If this is the first user in the namespace,
-    /// they are automatically assigned to the `superadmin` group.
+    /// Registers a new user in `namespace`.
+    ///
+    /// The first user of an empty namespace is bootstrapped as its
+    /// administrator: `superadmin` inside the global namespace, `admin`
+    /// inside a tenant. Later registrations join `users`.
     ///
     /// # Arguments
     /// * `req` - The registration request data.
     /// * `namespace` - The organization namespace.
+    ///
+    /// # Security
+    /// - C11-008: the organization is a function of the namespace. A caller
+    ///   may repeat the value in `req.organization_id`, but not choose a
+    ///   different one: trusting it verbatim let a registration attach a new
+    ///   user to a victim organization whose secret key the tenant-scoped
+    ///   endpoints could then read and rotate.
+    /// - `register` is reachable from the public routes, so `req.group` is
+    ///   untrusted input: privileged group names are refused before assignment.
     pub async fn register(&self, req: RegisterRequest, namespace: &str) -> Result<AuthResponse> {
-        // SECURITY (C11-008): the organization is a function of the namespace.
-        // A caller may repeat the value, but not choose a different one — the
-        // old code trusted `organization_id` verbatim, so registering with
-        // `namespace: "mine"` and `organization_id: <victim>` minted a user
-        // whose tenant-scoped endpoints then operated on the victim's
-        // organization (including reading and rotating its secret key).
         if let Some(requested_id) = req.organization_id
             && let Some(org) = self.org_repo.find_by_namespace(namespace).await?
             && org.organization_id != requested_id
@@ -278,9 +284,6 @@ impl<
 
         let user_count = self.user_repo.count_users(namespace).await?;
         let groups = if let Some(g) = req.group {
-            // `register` is reachable from the public routes, so a caller-named
-            // group is untrusted input: without this check anyone could post
-            // `{"group": "superadmin"}` and be granted it.
             if crate::constants::is_privileged_group(&g) {
                 return Err(anyhow!("group '{}' cannot be requested at registration", g));
             }
@@ -806,16 +809,19 @@ impl<
             .await
     }
 
+    /// Maps group names to their ids, creating the standard groups when missing.
+    ///
+    /// # Security
+    /// C11-007: `superadmin` is a global-only membership. Tenant schemas carry
+    /// a group row by that name (the tenant-sync migration seeds one), so
+    /// resolving it by name would let a tenant administrator grant
+    /// global-looking privileges inside its own namespace.
     pub(crate) async fn resolve_group_ids(
         &self,
         mut groups: Vec<String>,
         organization_id: i64,
         namespace: &str,
     ) -> Result<Vec<i64>> {
-        // SECURITY (C11-007): `superadmin` is a global-only membership. Tenant
-        // schemas carry a group row by that name (the tenant-sync migration
-        // seeds one), so resolving it by name would let a tenant administrator
-        // grant global-looking privileges inside its own namespace.
         if namespace != crate::constants::DEFAULT_NAMESPACE
             && groups
                 .iter()
@@ -844,7 +850,6 @@ impl<
             if let Some(g) = found_group {
                 group_ids.push(g.group_id);
             } else if group == USERS_GROUP {
-                // Auto-create users group if it doesn't exist
                 let new_group = NewGroup {
                     external_id: Uuid::new_v4(),
                     organization_id,
@@ -854,7 +859,6 @@ impl<
                 let users_group = self.group_repo.insert_group(new_group, namespace).await?;
                 group_ids.push(users_group.group_id);
             } else if group == ADMIN_GROUP {
-                // Auto-create admin group if it doesn't exist
                 let new_group = NewGroup {
                     external_id: Uuid::new_v4(),
                     organization_id,
@@ -1259,7 +1263,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_user_success() {
-        // Setup
         let user_repo = Arc::new(MockUserRepository::new());
         let group_repo = Arc::new(MockGroupRepository);
         let password_reset_repo = Arc::new(MockPasswordResetRepository);
@@ -1288,10 +1291,8 @@ mod tests {
             first_login: true,
         };
 
-        // Act
         let result = service.create_user(req, None, "default").await;
 
-        // Assert
         assert!(result.is_ok());
         let user = result.unwrap();
         assert_eq!(user.email, "test@example.com");
@@ -1300,7 +1301,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_group_ids_auto_create() {
-        // Setup
         let user_repo = Arc::new(MockUserRepository::new());
         let password_reset_repo = Arc::new(MockPasswordResetRepository);
         let jwt_service = Arc::new(JwtService::new("secret"));
@@ -1360,17 +1360,14 @@ mod tests {
             None,
         );
 
-        // Act
         let result = service
             .resolve_group_ids(vec!["users".to_string(), "admin".to_string()], 1, "test")
             .await;
 
-        // Assert
         assert!(result.is_ok());
         let ids = result.unwrap();
         assert_eq!(ids, vec![123, 123]); // Both match the same insert logic in this simplified mock
 
-        // Test with whitespace
         let result_ws = service
             .resolve_group_ids(vec!["  users  ".to_string()], 1, "test")
             .await;

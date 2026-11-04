@@ -32,6 +32,7 @@ type GroupServiceType = GroupService<PgGroupRepository>;
 #[allow(dead_code)]
 type PolicyServiceType = PolicyService<PgPolicyRepository>;
 
+/// Aggregated counters for the global dashboard, plus the acting admin.
 #[derive(Serialize)]
 pub struct AdminDashboard {
     pub total_users: i64,
@@ -40,6 +41,8 @@ pub struct AdminDashboard {
     pub current_admin: AdminInfo,
 }
 
+/// Query parameter `?org_id=` for the tenant-scoped admin routes. HTML forms
+/// send it as a string, JSON clients as a number; both are accepted.
 #[derive(serde::Deserialize)]
 pub struct OrgIdParam {
     #[serde(
@@ -49,6 +52,7 @@ pub struct OrgIdParam {
     pub org_id: Option<i64>,
 }
 
+/// The acting administrator embedded in [`AdminDashboard`].
 #[derive(Serialize)]
 pub struct AdminInfo {
     pub user_id: i64,
@@ -124,12 +128,15 @@ pub async fn create_user(
     }
 }
 
-/// GET /api/admin/dashboard
+/// GET /api/admin/dashboard - global system metrics.
+///
+/// # Security
+/// Restricted to global superadmins (C11-007): the counters are read from the
+/// global schema, so a tenant admin must never see them.
 pub async fn admin_dashboard(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(pool): Extension<sqlx::PgPool>,
 ) -> impl IntoResponse {
-    // Require global superadmin for dashboard access (prevents a tenant admin from leaking global metrics)
     if !user.is_global_superadmin() {
         return (StatusCode::FORBIDDEN, "Global Superadmin access required").into_response();
     }
@@ -439,13 +446,16 @@ pub struct CheckPermissionRequest {
     pub action: String,
 }
 
-/// POST /api/admin/permissions/check
+/// POST /api/admin/permissions/check - raw permission evaluation.
+///
+/// # Security
+/// Global superadmin only (C11-007): it would otherwise let a tenant admin
+/// probe other tenants' users and policies.
 pub async fn check_permission(
     Extension(admin): Extension<AuthenticatedUser>,
     Extension(pool): Extension<sqlx::PgPool>,
     Json(payload): Json<CheckPermissionRequest>,
 ) -> impl IntoResponse {
-    // Require global superadmin for permission checks (prevents tenant admin from probing other tenants)
     if !admin.is_global_superadmin() {
         return (StatusCode::FORBIDDEN, "Global Superadmin access required").into_response();
     }
@@ -614,6 +624,11 @@ pub async fn send_password_reset_email(
     }
 }
 
+/// Resolve the namespace that owns `org_id` and authorize the caller for it.
+///
+/// A caller may only operate inside its own namespace; cross-tenant access
+/// requires a *global* superadmin (`public` + `superadmin`, C11-007) so that a
+/// plain `admin` living in `public` cannot reach other tenants.
 async fn get_org_namespace_safe(
     pool: &sqlx::PgPool,
     user: &AuthenticatedUser,
@@ -640,7 +655,6 @@ async fn get_org_namespace_safe(
         }
     };
 
-    // Cross-tenant access is only allowed for Global Superadmin (namespace="public" + superadmin group)
     if user.namespace != namespace && !user.is_global_superadmin() {
         return Err((
             StatusCode::FORBIDDEN,

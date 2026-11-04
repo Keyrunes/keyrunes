@@ -1036,7 +1036,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_password_with_valid_email() {
-        // Setup
         let user_repo = Arc::new(MockUserRepo::new());
         let group_repo = Arc::new(MockGroupRepo);
         let password_reset_repo = Arc::new(MockPasswordResetRepo);
@@ -1057,13 +1056,10 @@ mod tests {
             None,
         );
 
-        // Act
         let user = service.find_user_by_email(EMAIL, DEFAULT_NAMESPACE).await;
 
-        // Assert
         assert!(user.is_some());
 
-        // Act
         let user = user.unwrap();
         let request = AdminChangePasswordRequest {
             user_id: user.user_id,
@@ -1072,13 +1068,11 @@ mod tests {
 
         let result = service.update_password(request, DEFAULT_NAMESPACE).await;
 
-        // Assert
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_update_password_with_invalid_email() {
-        // Setup
         let user_repo = Arc::new(MockUserRepo::new());
         let group_repo = Arc::new(MockGroupRepo);
         let password_reset_repo = Arc::new(MockPasswordResetRepo);
@@ -1099,18 +1093,15 @@ mod tests {
             None,
         );
 
-        // Act
         let user = service
             .find_user_by_email("nonexistent@example.com", DEFAULT_NAMESPACE)
             .await;
 
-        // Assert
         assert!(user.is_none());
     }
 
     #[tokio::test]
     async fn test_recover_user_with_valid_username() {
-        // Setup
         let user_repo = Arc::new(MockUserRepo::new());
         let group_repo = Arc::new(MockGroupRepo);
         let password_reset_repo = Arc::new(MockPasswordResetRepo);
@@ -1131,19 +1122,15 @@ mod tests {
             None,
         );
 
-        // Act
         let user = service
             .find_user_by_username(USERNAME, DEFAULT_NAMESPACE)
             .await;
 
-        // Assert
         assert!(user.is_some());
 
-        // Act
         let user = user.unwrap();
         assert_eq!(user.username, USERNAME);
 
-        // Act
         let groups = service
             .get_user_group_names(user.user_id, DEFAULT_NAMESPACE)
             .await
@@ -1159,10 +1146,8 @@ mod tests {
             )
             .unwrap();
 
-        // Assert
         assert!(!token.is_empty());
 
-        // Act
         let new_token = NewPasswordResetToken {
             user_id: user.user_id,
             token: token.clone(),
@@ -1174,23 +1159,19 @@ mod tests {
             .create_reset_token(new_token, DEFAULT_NAMESPACE)
             .await;
 
-        // Assert
         assert!(result.is_ok());
 
-        // Act
         let settings = settings_service
             .get_all_settings(DEFAULT_NAMESPACE)
             .await
             .unwrap();
 
-        // Assert
         assert!(!settings.is_empty());
         assert_eq!(settings[0].key, "BASE_URL");
     }
 
     #[tokio::test]
     async fn test_recover_user_with_invalid_username() {
-        // Setup
         let user_repo = Arc::new(MockUserRepo::new());
         let group_repo = Arc::new(MockGroupRepo);
         let password_reset_repo = Arc::new(MockPasswordResetRepo);
@@ -1211,12 +1192,10 @@ mod tests {
             None,
         );
 
-        // Act
         let user = service
             .find_user_by_username("nonexistent", DEFAULT_NAMESPACE)
             .await;
 
-        // Assert
         assert!(user.is_none());
     }
 
@@ -1229,7 +1208,6 @@ mod tests {
                 .unwrap_or("postgres://postgres:password@localhost:5432/keyrunes".to_string())
         });
 
-        // Setup
         let output = Command::new("./target/debug/cli")
             .env("DATABASE_URL", &db_url)
             .args([
@@ -1243,10 +1221,8 @@ mod tests {
             .output()
             .expect("Failed to execute command");
 
-        // Act
         let stdout = String::from_utf8(output.stdout).unwrap();
 
-        // Assert
         assert!(output.status.success());
         assert!(stdout.contains("Updated password successfully"));
     }
@@ -1260,7 +1236,6 @@ mod tests {
                 .unwrap_or("postgres://postgres:password@localhost:5432/keyrunes".to_string())
         });
 
-        // Setup
         let err = &EMAIL[9..];
         let output = Command::new("./target/debug/cli")
             .env("DATABASE_URL", &db_url)
@@ -1275,10 +1250,8 @@ mod tests {
             .output()
             .expect("Failed to execute command");
 
-        // Act
         let stderr = String::from_utf8(output.stderr).unwrap();
 
-        // Assert
         assert!(!output.status.success());
         assert!(stderr.contains(format!("Error: User with email {} not found", err).as_str()));
     }
@@ -1292,17 +1265,14 @@ mod tests {
                 .unwrap_or("postgres://postgres:password@localhost:5432/keyrunes".to_string())
         });
 
-        // Setup
         let output = Command::new("./target/debug/cli")
             .env("DATABASE_URL", &db_url)
             .args(["recover-user", "--username", USERNAME, "--generate-token"])
             .output()
             .expect("Failed to execute command");
 
-        // Act
         let stdout = String::from_utf8(output.stdout).unwrap();
 
-        // Assert
         if !output.status.success() {
             println!(
                 "Command failed: {}",
@@ -1322,7 +1292,6 @@ mod tests {
                 .unwrap_or("postgres://postgres:password@localhost:5432/keyrunes".to_string())
         });
 
-        // Setup
         let err = &USERNAME[3..];
         let output = Command::new("./target/debug/cli")
             .env("DATABASE_URL", &db_url)
@@ -1330,10 +1299,8 @@ mod tests {
             .output()
             .expect("Failed to execute command");
 
-        // Act
         let stderr = String::from_utf8(output.stderr).unwrap();
 
-        // Assert
         assert!(!output.status.success());
         assert!(stderr.contains(format!("User {} not found", err).as_str()));
     }

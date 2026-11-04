@@ -85,6 +85,13 @@ pub async fn register_page(Extension(tmpl): Extension<tera::Tera>) -> impl IntoR
 }
 
 /// POST /register
+/// POST /register - create an account from the HTML form.
+///
+/// # Security
+/// Delegates to `UserService::register`, which enforces the C11-008
+/// namespace/organization binding and refuses privileged group names.
+/// Failures are logged server-side and the browser only sees a generic
+/// message, so database/backend errors never leak to the UI.
 pub async fn register_post(
     Extension(service): Extension<Arc<UserServiceType>>,
     Extension(tmpl): Extension<tera::Tera>,
@@ -124,7 +131,6 @@ pub async fn register_post(
             (StatusCode::SEE_OTHER, headers, Redirect::to("/dashboard")).into_response()
         }
         Err(e) => {
-            // SECURITY: log server-side, show a generic message (no DB internals).
             tracing::warn!("register failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Register");
@@ -147,6 +153,11 @@ pub async fn login_page(Extension(tmpl): Extension<tera::Tera>) -> impl IntoResp
 }
 
 /// POST /login
+/// POST /login - authenticate from the HTML form and set the session cookie.
+///
+/// # Security
+/// Failure details are logged server-side only; the browser always receives
+/// the same generic message so backend errors never leak to the UI.
 pub async fn login_post(
     Extension(service): Extension<Arc<UserServiceType>>,
     Extension(tmpl): Extension<tera::Tera>,
@@ -176,8 +187,6 @@ pub async fn login_post(
             (StatusCode::SEE_OTHER, headers, Redirect::to("/dashboard")).into_response()
         }
         Err(e) => {
-            // SECURITY: log detail server-side; show a generic message in the UI
-            // so database/backend errors are not leaked to the browser.
             tracing::warn!("web login failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Login");
@@ -205,6 +214,11 @@ pub async fn change_password_page(
 }
 
 /// POST /change-password
+/// POST /change-password - change the logged-in user's password from the HTML form.
+///
+/// # Security
+/// The new password is never logged; failures render a generic message so
+/// database/backend details do not leak to the browser.
 pub async fn change_password_post(
     Extension(service): Extension<Arc<UserServiceType>>,
     Extension(tmpl): Extension<tera::Tera>,
@@ -251,7 +265,6 @@ pub async fn change_password_post(
     {
         Ok(_) => Redirect::to("/dashboard").into_response(),
         Err(e) => {
-            // SECURITY: log server-side, show a generic message (no DB internals).
             tracing::warn!("change-password failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Change Password");

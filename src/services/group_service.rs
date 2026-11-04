@@ -5,14 +5,18 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// Request body for `POST /api/admin/groups`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateGroupRequest {
+    /// Tenant organization that will own the group; accepted as number or
+    /// string (HTML forms submit strings).
     #[serde(deserialize_with = "crate::api::deserializers::deserialize_string_or_number")]
     pub organization_id: i64,
     pub name: String,
     pub description: Option<String>,
 }
 
+/// Serialized group with its attached policies, as returned by the API.
 #[derive(Debug, Clone, Serialize)]
 pub struct GroupResponse {
     pub group_id: i64,
@@ -22,6 +26,7 @@ pub struct GroupResponse {
     pub policies: Vec<PolicyResponse>,
 }
 
+/// Serialized policy embedded in a [`GroupResponse`].
 #[derive(Debug, Clone, Serialize)]
 pub struct PolicyResponse {
     pub policy_id: i64,
@@ -33,6 +38,7 @@ pub struct PolicyResponse {
     pub effect: String,
 }
 
+/// Group management on top of a tenant-scoped [`GroupRepository`].
 #[derive(Debug, Clone)]
 pub struct GroupService<G: GroupRepository> {
     pub repo: Arc<G>,
@@ -280,7 +286,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_group() {
-        // Setup
         let repo = Arc::new(MockGroupRepository::new());
         let service = GroupService::new(repo);
 
@@ -290,10 +295,8 @@ mod tests {
             description: Some("Test group description".to_string()),
         };
 
-        // Act
         let group = service.create_group(req, DEFAULT_NAMESPACE).await.unwrap();
 
-        // Assert
         assert_eq!(group.name, "test_group");
         assert_eq!(
             group.organization_id,
@@ -307,7 +310,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_duplicate_group() {
-        // Setup
         let repo = Arc::new(MockGroupRepository::new());
         let service = GroupService::new(repo);
 
@@ -322,10 +324,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Act
         let result = service.create_group(req, DEFAULT_NAMESPACE).await;
 
-        // Assert
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "group name already exists");
     }

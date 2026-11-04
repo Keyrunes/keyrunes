@@ -6,8 +6,10 @@ use std::time::SystemTime;
 
 use utoipa::ToSchema;
 
+/// Full component report returned by `GET /api/health`.
 #[derive(Serialize, ToSchema)]
 pub struct HealthResponse {
+    /// Overall verdict: `healthy` only when every component is healthy.
     pub status: String,
     pub timestamp: String,
     pub version: String,
@@ -16,6 +18,7 @@ pub struct HealthResponse {
     pub services: ServicesHealth,
 }
 
+/// Result of the database probe inside [`HealthResponse`].
 #[derive(Serialize, ToSchema)]
 pub struct DatabaseHealth {
     pub status: String,
@@ -23,6 +26,7 @@ pub struct DatabaseHealth {
     pub active_connections: Option<i32>,
 }
 
+/// Self-test results for the in-process components (JWT signing, hashing).
 #[derive(Serialize, ToSchema)]
 pub struct ServicesHealth {
     pub jwt_service: String,
@@ -31,6 +35,8 @@ pub struct ServicesHealth {
 
 static START_TIME: std::sync::OnceLock<SystemTime> = std::sync::OnceLock::new();
 
+/// Records the process start time so [`health_check`] can report uptime.
+/// Safe to call more than once: the first timestamp wins.
 pub fn init_health_check() {
     START_TIME.set(SystemTime::now()).ok();
 }
@@ -95,6 +101,8 @@ pub async fn health_check(Extension(pool): Extension<PgPool>) -> impl IntoRespon
     (status_code, Json(response))
 }
 
+/// `GET /api/health/ready` - readiness probe for load balancers: answers 503
+/// until a `SELECT 1` round-trip proves the database connection is usable.
 pub async fn readiness_check(Extension(pool): Extension<PgPool>) -> impl IntoResponse {
     let db_result = sqlx::query("SELECT 1 as health_check")
         .fetch_one(&pool)
@@ -119,6 +127,9 @@ pub async fn readiness_check(Extension(pool): Extension<PgPool>) -> impl IntoRes
     }
 }
 
+/// `GET /api/health/live` - liveness probe: the process is up and serving;
+/// touches no external dependency, so it never fails for infrastructure
+/// reasons.
 pub async fn liveness_check() -> impl IntoResponse {
     (
         StatusCode::OK,

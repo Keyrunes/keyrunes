@@ -28,13 +28,20 @@ type UserSvc = UserService<
     PgOrganizationRepository,
 >;
 
+/// Response body for the organization secret routes: the current `secret_key`.
 #[derive(Serialize, ToSchema)]
 pub struct OrgKeyResponse {
     pub organization_id: i64,
     pub secret_key: String,
 }
 
-/// GET /api/org/secret
+/// GET /api/org/secret - reveal the caller's organization secret key.
+///
+/// # Security
+/// - Only members of `admin` or `superadmin` may read the key.
+/// - C11-008 (variant B): the organization resolved from `users.organization_id`
+///   is re-checked against the caller's namespace, so a stale or forged pointer
+///   at another tenant's organization is refused instead of leaking its secret.
 #[utoipa::path(
     get,
     path = "/api/org/secret",
@@ -53,7 +60,6 @@ pub async fn get_org_key(
     Extension(user_service): Extension<Arc<UserSvc>>,
     Extension(org_service): Extension<Arc<OrgService>>,
 ) -> impl IntoResponse {
-    // Only admins of the organization may read its secret key
     if !user
         .groups
         .iter()
@@ -63,7 +69,6 @@ pub async fn get_org_key(
             .into_response();
     }
 
-    // Validate namespace ownership: only the organization's own namespace user can access its secret
     let full_user = match user_service
         .user_repo
         .find_by_id(user.user_id, &user.namespace)
@@ -80,7 +85,6 @@ pub async fn get_org_key(
 
     match org_service.get_organization_by_id(org_id).await {
         Ok(Some(org)) => {
-            // Only reveal secret_key if the organization's namespace matches the user's namespace
             if org.namespace != user.namespace {
                 return ErrorResponse::forbidden("Organization does not belong to your namespace")
                     .into_response();
@@ -99,7 +103,13 @@ pub async fn get_org_key(
     }
 }
 
-/// POST /api/org/secret/rotate
+/// POST /api/org/secret/rotate - rotate the caller's organization secret key.
+///
+/// # Security
+/// - Only members of `admin` or `superadmin` may rotate the key.
+/// - C11-008 (variant B): the organization resolved from `users.organization_id`
+///   is verified against the caller's namespace before rotating, so a stale or
+///   forged pointer at another tenant's organization is refused.
 #[utoipa::path(
     post,
     path = "/api/org/secret/rotate",
@@ -117,7 +127,6 @@ pub async fn rotate_org_key(
     Extension(user_service): Extension<Arc<UserSvc>>,
     Extension(org_service): Extension<Arc<OrgService>>,
 ) -> impl IntoResponse {
-    // Validate namespace ownership: only the organization's own namespace user can rotate its key
     let full_user = match user_service
         .user_repo
         .find_by_id(user.user_id, &user.namespace)
@@ -127,14 +136,12 @@ pub async fn rotate_org_key(
         _ => return ErrorResponse::unauthorized("User not found").into_response(),
     };
 
-    // The organization must belong to the user's namespace
     if full_user.organization_id == 0 {
         return ErrorResponse::forbidden("Organization not assigned to user").into_response();
     }
 
     let org_id = full_user.organization_id;
 
-    // Check permissions: only admin or superadmin in the correct namespace
     if !user
         .groups
         .iter()
@@ -144,8 +151,6 @@ pub async fn rotate_org_key(
             .into_response();
     }
 
-    // C11-008 (variant B): never rotate a key for an organization that belongs
-    // to another tenant, even when `users.organization_id` points at it.
     match org_service.get_organization_by_id(org_id).await {
         Ok(Some(org)) if org.namespace != user.namespace => {
             return ErrorResponse::forbidden("Organization does not belong to your namespace")
@@ -198,7 +203,14 @@ pub async fn create_organization(
     }
 }
 
-/// GET /api/organizations
+/// GET /api/organizations - list the organizations visible to the caller.
+///
+/// # Security
+/// - A global superadmin sees every organization.
+/// - Everyone else only gets organizations in their own namespace, and the
+///   caller's own organization is first verified to belong to that namespace
+///   (C11-008: this route used to hand out the full organization object —
+///   including `secret_key` — of any tenant).
 pub async fn list_organizations(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(pool): Extension<sqlx::PgPool>,
@@ -208,17 +220,12 @@ pub async fn list_organizations(
     let group_repo = Arc::new(PgGroupRepository::new(pool));
     let org_service = OrganizationService::new(org_repo, group_repo);
 
-    // Global superadmin can list all organizations
     if user.is_global_superadmin() {
         match org_service.list_organizations().await {
             Ok(orgs) => (StatusCode::OK, Json(orgs)).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         }
     } else {
-        // Regular users can only see organizations that belong to their namespace.
-        // We get the user's organization_id and list organizations in the same namespace.
-        // Since the User model doesn't store namespace, we use the namespace from JWT claims.
-        // The organization_id links the user to their namespace.
         match user_service
             .user_repo
             .find_by_id(user.user_id, &user.namespace)
@@ -226,15 +233,12 @@ pub async fn list_organizations(
         {
             Ok(Some(full_user)) => {
                 let org_id = full_user.organization_id;
-                // Get the organization to check its namespace
                 match org_service.get_organization_by_id(org_id).await {
                     Ok(Some(org)) => {
-                        // Only show organizations that belong to the user's namespace
                         if org.namespace != user.namespace {
                             return (StatusCode::FORBIDDEN, "Insufficient permissions")
                                 .into_response();
                         }
-                        // List all organizations in the same namespace
                         match org_service.list_organizations().await {
                             Ok(all_orgs) => {
                                 let orgs_in_namespace: Vec<_> = all_orgs
@@ -286,6 +290,11 @@ pub async fn admin_rotate_org_key(
     }
 }
 
+/// Reject the request unless the caller is a *global* superadmin.
+///
+/// C11-007: the `superadmin` group name alone is not enough — tenant schemas
+/// carry their own `superadmin` rows, so only the global namespace (`public`)
+/// may act across organizations.
 fn validate_global_superadmin_access(
     user: &AuthenticatedUser,
 ) -> Result<(), (StatusCode, &'static str)> {
@@ -333,49 +342,37 @@ mod tests {
 
     #[test]
     fn test_global_superadmin_allowed() {
-        // Setup
         let user = create_user(vec!["superadmin"], DEFAULT_NAMESPACE);
 
-        // Act
         let result = validate_global_superadmin_access(&user);
 
-        // Assert
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_tenant_superadmin_forbidden() {
-        // Setup
         let user = create_user(vec!["superadmin"], "tenant_ns");
 
-        // Act
         let result = validate_global_superadmin_access(&user);
 
-        // Assert
         assert!(result.is_err());
     }
 
     #[test]
     fn test_regular_admin_public_ns_forbidden() {
-        // Setup
         let user = create_user(vec!["admin"], DEFAULT_NAMESPACE);
 
-        // Act
         let result = validate_global_superadmin_access(&user);
 
-        // Assert
         assert!(result.is_err());
     }
 
     #[test]
     fn test_regular_user_forbidden() {
-        // Setup
         let user = create_user(vec!["users"], "tenant_ns");
 
-        // Act
         let result = validate_global_superadmin_access(&user);
 
-        // Assert
         assert!(result.is_err());
     }
 }

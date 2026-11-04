@@ -71,6 +71,14 @@ impl JwtService {
         Ok(token)
     }
 
+    /// Validates a token's HS256 signature and its registered claims.
+    ///
+    /// # Security
+    /// - `josekit::jwt::decode_with_verifier` only checks the signature; the
+    ///   registered claims mean nothing unless they are checked here.
+    /// - No clock-skew leeway: Keyrunes issues and verifies against the same
+    ///   clock, and any leeway is a window in which a revoked session still
+    ///   works. `exp` is the first instant at which the token is invalid.
     pub fn verify_token(&self, token: &str) -> Result<Claims> {
         let verifier = HS256.verifier_from_bytes(&self.secret)?;
         let (payload, _header) = jwt::decode_with_verifier(token, &verifier)
@@ -118,8 +126,6 @@ impl JwtService {
             .ok_or_else(|| anyhow!("Missing or invalid 'iss' claim"))?
             .to_string();
 
-        // `josekit::jwt::decode_with_verifier` only checks the signature; the
-        // registered claims mean nothing unless they are checked here.
         if iss != self.issuer {
             return Err(anyhow!(
                 "Token was issued by '{}', expected '{}'",
@@ -128,9 +134,6 @@ impl JwtService {
             ));
         }
 
-        // No clock-skew leeway: Keyrunes issues and verifies against the same
-        // clock, and any leeway is a window in which a revoked session still
-        // works. `exp` is the first instant at which the token is invalid.
         let now = Utc::now().timestamp();
         if now >= exp {
             return Err(anyhow!("Token expired at {} (now {})", exp, now));
@@ -198,11 +201,9 @@ mod tests {
 
     #[test]
     fn test_jwt_token_generation_and_verification() {
-        // Setup
         let service = JwtService::new("0123456789ABCDEF0123456789ABCDEF");
         let groups = vec![USERS_GROUP.to_string(), "admin".to_string()];
 
-        // Act
         let token = service
             .generate_token(
                 1,
@@ -215,7 +216,6 @@ mod tests {
             .unwrap();
         let claims = service.verify_token(&token).unwrap();
 
-        // Assert
         assert_eq!(claims.sub, "1");
         assert_eq!(claims.email, "test@example.com");
         assert_eq!(claims.username, "testuser");
@@ -226,7 +226,6 @@ mod tests {
 
     #[test]
     fn test_refresh_token() {
-        // Setup
         let service = JwtService::new("0123456789ABCDEF0123456789ABCDEF");
         let groups = vec![USERS_GROUP.to_string()];
         let original_token = service
@@ -241,10 +240,8 @@ mod tests {
             .unwrap();
         thread::sleep(StdDuration::from_secs(1));
 
-        // Act
         let refreshed_token = service.refresh_token(&original_token).unwrap();
 
-        // Assert
         let original_claims = service.verify_token(&original_token).unwrap();
         let refreshed_claims = service.verify_token(&refreshed_token).unwrap();
         assert_eq!(original_claims.sub, refreshed_claims.sub);
@@ -326,10 +323,8 @@ mod tests {
         let service = JwtService::new(secret);
         let past = (Utc::now() - Duration::hours(48)).timestamp();
 
-        // Act
         let result = service.verify_token(&forge(secret, past, past - 3600, "keyrunes"));
 
-        // Assert
         assert!(result.is_err(), "an expired token must not verify");
     }
 
@@ -390,17 +385,14 @@ mod tests {
 
     #[test]
     fn test_extract_user_id() {
-        // Setup
         let service = JwtService::new("0123456789ABCDEF0123456789ABCDEF");
         let groups = vec![USERS_GROUP.to_string()];
         let token = service
             .generate_token(42, "test@example.com", "testuser", groups, "test_ns", 1)
             .unwrap();
 
-        // Act
         let user_id = service.extract_user_id(&token).unwrap();
 
-        // Assert
         assert_eq!(user_id, 42);
     }
 
