@@ -188,10 +188,6 @@ async fn main() -> anyhow::Result<()> {
         );
 
     let protected_api_router = Router::new()
-        .route(
-            "/api/admin/organizations",
-            get(api::organization::list_organizations),
-        )
         .route("/api/refresh-token", post(api::auth::refresh_token_api))
         .route("/api/me", get(api::auth::me_api))
         .route("/api/user/profile", patch(api::user::update_profile))
@@ -245,7 +241,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/admin/organizations",
-            post(api::organization::create_organization),
+            get(api::organization::list_organizations).post(api::organization::create_organization),
         )
         .route(
             "/api/admin/organizations/{id}",

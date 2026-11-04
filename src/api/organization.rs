@@ -203,14 +203,30 @@ pub async fn create_organization(
     }
 }
 
-/// GET /api/organizations - list the organizations visible to the caller.
+/// Whether the caller may list organizations at all.
+///
+/// # Security
+/// The listing carries the organization `secret_key` (the organization API
+/// key), so only administrators may call it: a global superadmin, or an
+/// administrator of the caller's own namespace. A plain user is refused.
+pub fn may_list_organizations(user: &AuthenticatedUser) -> bool {
+    user.is_global_superadmin()
+        || user
+            .groups
+            .iter()
+            .any(|g| g == crate::constants::ADMIN_GROUP || g == SUPERADMIN_GROUP)
+}
+
+/// GET /api/admin/organizations - list the organizations visible to the caller.
 ///
 /// # Security
 /// - A global superadmin sees every organization.
-/// - Everyone else only gets organizations in their own namespace, and the
-///   caller's own organization is first verified to belong to that namespace
-///   (C11-008: this route used to hand out the full organization object —
-///   including `secret_key` — of any tenant).
+/// - Any other caller must be an administrator of its own namespace; a plain
+///   user is refused, because the payload carries the organization
+///   `secret_key` (the organization API key).
+/// - The caller's own organization is first verified to belong to that
+///   namespace (C11-008: this route used to hand out the full organization
+///   object — including `secret_key` — of any tenant).
 pub async fn list_organizations(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(pool): Extension<sqlx::PgPool>,
@@ -226,6 +242,10 @@ pub async fn list_organizations(
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         }
     } else {
+        if !may_list_organizations(&user) {
+            return (StatusCode::FORBIDDEN, "Insufficient permissions").into_response();
+        }
+
         match user_service
             .user_repo
             .find_by_id(user.user_id, &user.namespace)
