@@ -1,3 +1,4 @@
+use crate::constants::{DEFAULT_NAMESPACE, SUPERADMIN_GROUP};
 use crate::repository::{Group, GroupRepository, NewGroup};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,20 @@ impl<G: GroupRepository> GroupService<G> {
     }
 
     /// Creates a new group.
+    ///
+    /// SECURITY (C11-007): the `superadmin` name is reserved to the global
+    /// namespace. Tenant schemas each carry a group by that name, and the
+    /// authorization layers key off the name, so letting a tenant administrator
+    /// mint one turns "I can name a group" into "I am a superadmin".
     pub async fn create_group(&self, req: CreateGroupRequest, namespace: &str) -> Result<Group> {
+        if namespace != DEFAULT_NAMESPACE && req.name.trim().eq_ignore_ascii_case(SUPERADMIN_GROUP)
+        {
+            return Err(anyhow!(
+                "group name '{}' is reserved to the global namespace",
+                SUPERADMIN_GROUP
+            ));
+        }
+
         if self
             .repo
             .find_by_name(&req.name, req.organization_id, namespace)
@@ -122,6 +136,9 @@ impl<G: GroupRepository> GroupService<G> {
     }
 
     /// Assigns a user to a group.
+    ///
+    /// SECURITY (C11-007): a tenant cannot grant `superadmin`, whatever the
+    /// group row inside its own schema happens to be called.
     pub async fn assign_user_to_group(
         &self,
         user_id: i64,
@@ -129,8 +146,18 @@ impl<G: GroupRepository> GroupService<G> {
         assigned_by: Option<i64>,
         namespace: &str,
     ) -> Result<()> {
-        if self.repo.find_by_id(group_id, namespace).await?.is_none() {
-            return Err(anyhow!("group not found"));
+        let group = match self.repo.find_by_id(group_id, namespace).await? {
+            Some(group) => group,
+            None => return Err(anyhow!("group not found")),
+        };
+
+        if namespace != DEFAULT_NAMESPACE
+            && group.name.trim().eq_ignore_ascii_case(SUPERADMIN_GROUP)
+        {
+            return Err(anyhow!(
+                "group '{}' can only be assigned inside the global namespace",
+                SUPERADMIN_GROUP
+            ));
         }
 
         self.repo

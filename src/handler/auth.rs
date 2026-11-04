@@ -27,6 +27,22 @@ pub struct AuthenticatedUser {
     pub organization_id: i64,
 }
 
+impl AuthenticatedUser {
+    /// Whether this caller is a **global** superadmin.
+    ///
+    /// SECURITY (C11-007): the `superadmin` group name alone is not a
+    /// privilege marker. Every tenant schema carries its own row named
+    /// `superadmin`, so a tenant administrator able to create groups could mint
+    /// one and hand it to itself. Only the global namespace (`public`) is
+    /// trusted, and only when the token really carries `superadmin`.
+    ///
+    /// Use this everywhere a decision depends on "may act outside my tenant".
+    pub fn is_global_superadmin(&self) -> bool {
+        self.namespace == crate::constants::DEFAULT_NAMESPACE
+            && self.groups.iter().any(|g| g == SUPERADMIN_GROUP)
+    }
+}
+
 impl From<Claims> for AuthenticatedUser {
     fn from(claims: Claims) -> Self {
         Self {
@@ -178,7 +194,10 @@ pub async fn require_org_key_or_superadmin(
         && let Ok(claims) = jwt_service.verify_token(&token)
     {
         let user = AuthenticatedUser::from(claims);
-        if user.groups.contains(&SUPERADMIN_GROUP.to_string()) {
+        // SECURITY (C11-007): only a *global* superadmin may bypass the
+        // organization key. A tenant-scoped token carrying a locally minted
+        // `superadmin` group must not reach this branch.
+        if user.is_global_superadmin() {
             request
                 .extensions_mut()
                 .insert(ApiAuthContext::Superadmin(user));
