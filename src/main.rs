@@ -262,12 +262,30 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/verify-org-key",
             get(
-                |Extension(org): Extension<keyrunes::repository::Organization>| async move {
-                    axum::Json(serde_json::json!({
-                        "status": "success",
-                        "organization": org.name,
-                        "organization_id": org.organization_id
-                    }))
+                |Extension(ctx): Extension<keyrunes::handler::auth::ApiAuthContext>| async move {
+                    use axum::response::IntoResponse;
+                    match ctx {
+                        keyrunes::handler::auth::ApiAuthContext::Organization(org) => {
+                            axum::Json(serde_json::json!({
+                                "status": "success",
+                                "organization": org.name,
+                                "organization_id": org.organization_id
+                            }))
+                            .into_response()
+                        }
+                        keyrunes::handler::auth::ApiAuthContext::Superadmin(_) => {
+                            // Verification is about a key; a bearer token cannot
+                            // stand in for one here.
+                            (
+                                axum::http::StatusCode::BAD_REQUEST,
+                                axum::Json(serde_json::json!({
+                                    "status": "error",
+                                    "error": "X-Organization-Key header required"
+                                })),
+                            )
+                                .into_response()
+                        }
+                    }
                 },
             ),
         )
