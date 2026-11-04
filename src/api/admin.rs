@@ -129,8 +129,9 @@ pub async fn admin_dashboard(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(pool): Extension<sqlx::PgPool>,
 ) -> impl IntoResponse {
-    if !user.groups.contains(&SUPERADMIN_GROUP.to_string()) {
-        return (StatusCode::FORBIDDEN, "Superadmin access required").into_response();
+    // Require global superadmin for dashboard access (prevents a tenant admin from leaking global metrics)
+    if !user.is_global_superadmin() {
+        return (StatusCode::FORBIDDEN, "Global Superadmin access required").into_response();
     }
 
     let user_count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM users")
@@ -444,10 +445,9 @@ pub async fn check_permission(
     Extension(pool): Extension<sqlx::PgPool>,
     Json(payload): Json<CheckPermissionRequest>,
 ) -> impl IntoResponse {
-    if !admin.groups.contains(&SUPERADMIN_GROUP.to_string())
-        && !admin.groups.contains(&"admin".to_string())
-    {
-        return (StatusCode::FORBIDDEN, "Admin access required").into_response();
+    // Require global superadmin for permission checks (prevents tenant admin from probing other tenants)
+    if !admin.is_global_superadmin() {
+        return (StatusCode::FORBIDDEN, "Global Superadmin access required").into_response();
     }
 
     let user_repo = Arc::new(PgUserRepository::new(pool.clone()));
@@ -640,10 +640,13 @@ async fn get_org_namespace_safe(
         }
     };
 
-    if user.namespace != "public" && user.namespace != namespace {
+    // Cross-tenant access is only allowed for Global Superadmin (namespace="public" + superadmin group)
+    if user.namespace != namespace && !user.is_global_superadmin() {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "Access denied" })),
+            Json(
+                serde_json::json!({ "error": "Access denied - cross-tenant access requires global superadmin" }),
+            ),
         ));
     }
 
