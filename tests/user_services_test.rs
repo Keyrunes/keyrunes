@@ -481,8 +481,17 @@ impl OrganizationRepository for MockOrganizationRepository {
         )))
     }
     async fn find_by_namespace(&self, namespace: &str) -> Result<Option<Organization>> {
+        // Mirror the tenant convention already used by MockRepo::count_users:
+        // the global namespace owns organization 1, "org_2" owns organization 2.
+        // A blanket DEFAULT_ORGANIZATION_ID here would contradict the C11-008
+        // org<->namespace binding check in UserService::register.
+        let organization_id = match namespace {
+            keyrunes::constants::DEFAULT_NAMESPACE => keyrunes::constants::DEFAULT_ORGANIZATION_ID,
+            "org_2" => 2,
+            _ => keyrunes::constants::DEFAULT_ORGANIZATION_ID,
+        };
         Ok(Some(OrganizationFactory::create_organization(
-            keyrunes::constants::DEFAULT_ORGANIZATION_ID,
+            organization_id,
             "Default".to_string(),
             namespace.to_string(),
         )))

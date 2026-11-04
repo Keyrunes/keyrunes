@@ -242,6 +242,23 @@ impl<
     /// * `req` - The registration request data.
     /// * `namespace` - The organization namespace.
     pub async fn register(&self, req: RegisterRequest, namespace: &str) -> Result<AuthResponse> {
+        // SECURITY (C11-008): the organization is a function of the namespace.
+        // A caller may repeat the value, but not choose a different one — the
+        // old code trusted `organization_id` verbatim, so registering with
+        // `namespace: "mine"` and `organization_id: <victim>` minted a user
+        // whose tenant-scoped endpoints then operated on the victim's
+        // organization (including reading and rotating its secret key).
+        if let Some(requested_id) = req.organization_id
+            && let Some(org) = self.org_repo.find_by_namespace(namespace).await?
+            && org.organization_id != requested_id
+        {
+            return Err(anyhow!(
+                "organization {} does not belong to namespace '{}'",
+                requested_id,
+                namespace
+            ));
+        }
+
         let organization_id = match req.organization_id {
             Some(id) => id,
             None => {
@@ -795,6 +812,21 @@ impl<
         organization_id: i64,
         namespace: &str,
     ) -> Result<Vec<i64>> {
+        // SECURITY (C11-007): `superadmin` is a global-only membership. Tenant
+        // schemas carry a group row by that name (the tenant-sync migration
+        // seeds one), so resolving it by name would let a tenant administrator
+        // grant global-looking privileges inside its own namespace.
+        if namespace != crate::constants::DEFAULT_NAMESPACE
+            && groups
+                .iter()
+                .any(|g| g.trim().eq_ignore_ascii_case(SUPERADMIN_GROUP))
+        {
+            return Err(anyhow!(
+                "group '{}' can only be granted inside the global namespace",
+                SUPERADMIN_GROUP
+            ));
+        }
+
         if groups.is_empty() {
             groups.push(crate::constants::USERS_GROUP.to_string());
         }
