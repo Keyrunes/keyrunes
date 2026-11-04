@@ -1,3 +1,4 @@
+use goose::config::GooseConfiguration;
 use goose::prelude::*;
 
 /// Scenario 1: Health baseline - GET /api/health
@@ -109,8 +110,9 @@ async fn registration_flow_scenario(user: &mut GooseUser) -> TransactionResult {
 }
 
 #[tokio::test]
+#[ignore = "requires a running server on localhost:3000 (run: make test-stress)"]
 async fn stress_test_health_baseline() {
-    let goose = GooseAttack::initialize()
+    let goose = GooseAttack::initialize_with_config(GooseConfiguration::default())
         .unwrap()
         .register_scenario(
             scenario!("HealthBaseline")
@@ -131,8 +133,9 @@ async fn stress_test_health_baseline() {
 }
 
 #[tokio::test]
+#[ignore = "requires a running server on localhost:3000 (run: make test-stress)"]
 async fn stress_test_concurrent_login() {
-    let goose = GooseAttack::initialize()
+    let goose = GooseAttack::initialize_with_config(GooseConfiguration::default())
         .unwrap()
         .register_scenario(
             scenario!("ConcurrentLogin")
@@ -153,8 +156,9 @@ async fn stress_test_concurrent_login() {
 }
 
 #[tokio::test]
+#[ignore = "requires a running server on localhost:3000 (run: make test-stress)"]
 async fn stress_test_registration_flow() {
-    let goose = GooseAttack::initialize()
+    let goose = GooseAttack::initialize_with_config(GooseConfiguration::default())
         .unwrap()
         .register_scenario(
             scenario!("RegistrationFlow")
