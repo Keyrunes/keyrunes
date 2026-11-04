@@ -170,10 +170,11 @@ pub async fn login_api(
 /// POST /api/refresh-token - reissue the caller's JWT.
 ///
 /// # Security (VULN-07)
-/// The `token` field in the body is intentionally ignored: the refreshed token
-/// is always minted for the identity carried by the verified Bearer token.
-/// Trusting the body would let any authenticated user mint a token for
-/// another user whose token leaked.
+/// The request body is not even deserialized: the refreshed token is always
+/// minted for the identity carried by the verified Bearer token. Trusting the
+/// body would let any authenticated user mint a token for another user whose
+/// token leaked. The body stays in the OpenAPI schema so older clients that
+/// still send `{"token": "..."}` keep working.
 #[utoipa::path(
     post,
     path = "/api/refresh-token",
@@ -187,7 +188,6 @@ pub async fn login_api(
 pub async fn refresh_token_api(
     Extension(user): Extension<AuthenticatedUser>,
     Extension(service): Extension<Arc<UserServiceType>>,
-    _payload: Option<Json<RefreshTokenRequest>>,
 ) -> impl IntoResponse {
     match service
         .refresh_token_for_user(user.user_id, &user.namespace)
