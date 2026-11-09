@@ -10,46 +10,51 @@ message; to change the shape, edit `cliff.toml`.
 
 ### 🚀 Features
 
-- *(auth)* Add optional Google reCAPTCHA verification to register and login
-- *(auth)* Harden password-reset flow (atomic claim, caps, rate limit, TTL)
+- Add optional Google reCAPTCHA verification to register and login
+- Harden password-reset flow (atomic claim, caps, rate limit, TTL)
 
 ### 🐛 Bug Fixes
 
-- *(auth)* Schedule expired reset-token cleanup and rate-limit by email
-
-### 📚 Documentation
-
-- *(changelog)* Cut the 0.4.3 release section with git-cliff
-- *(changelog)* Cut the 0.4.4 release section with git-cliff
-- Add security analysis prompt and index it
-
-## [0.4.2] - 2026-11-04
-
-### 🐛 Bug Fixes
-
-- *(security)* Enforce global superadmin namespace and reserve superadmin group (C11-007, reported by Rathnadeepan / HotWater @HotWater-015)
-- *(security)* Bind organization_id to namespace and restrict public org secret access (C11-008, reported by Rathnadeepan / HotWater @HotWater-015)
-- *(api)* Make verify-org-key read the auth context the middleware injects
-- *(security)* Restrict the organization listing to administrators
-- *(api)* Stop deserializing the refresh-token request body
+- Make verify-org-key read the auth context the middleware injects
+- Restrict the organization listing to administrators
+- Stop deserializing the refresh-token request body
+- Schedule expired reset-token cleanup and rate-limit by email
 
 ### 📚 Documentation
 
 - Fold inline security notes into rustdoc and document undocumented items
-- *(changelog)* Cut the 0.4.2 release section with git-cliff
+- Cut the 0.4.2 release section with git-cliff
+- Cut the 0.4.3 release section with git-cliff
+- Add security analysis prompt and index it
+
+### 🎨 Styling
+
+- Fix import ordering in auth.rs (cargo fmt)
 
 ### ⚙️ Miscellaneous Tasks
 
-- *(test)* Stop goose from parsing the libtest argv
-- *(release)* Bump version to 0.4.2
+- Consolidate to 0.4.3 (reCAPTCHA + password-reset hardening)
 
-## [0.4.1] - 2026-10-23
+## [0.4.2] - 2026-11-09
+
+### 🐛 Bug Fixes
+
+- Enforce global superadmin namespace and reserve superadmin group (C11-007, reported by Rathnadeepan / HotWater @HotWater-015)
+- Bind organization_id to namespace and restrict public org secret access (C11-008, reported by Rathnadeepan / HotWater @HotWater-015)
 
 ### ⚙️ Miscellaneous Tasks
 
-- *(release)* Bump version to 0.4.1
+- Stop goose from parsing the libtest argv
+- Bump version to 0.4.2
 
-## [0.4.0] - 2026-10-18
+## [0.4.1] - 2026-11-09
+
+### ⚙️ Miscellaneous Tasks
+
+- Upgrade all dependencies to their latest versions
+- Bump version to 0.4.1
+
+## [0.4.0] - 2026-11-09
 
 ### 🚀 Features
 
@@ -89,7 +94,7 @@ message; to change the shape, edit `cliff.toml`.
 ### ⚙️ Miscellaneous Tasks
 
 - *(release)* Bump version to 0.4.0
-- *(release)* Set version to 0.4.0
+- Set version to 0.4.0
 
 ## [0.3.0] - 2026-09-03
 
