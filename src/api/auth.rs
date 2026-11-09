@@ -12,6 +12,7 @@ use crate::repository::sqlx_impl::{
     PgGroupRepository, PgOrganizationRepository, PgPasswordResetRepository, PgSettingsRepository,
     PgUserRepository,
 };
+use crate::handler::rate_limit::RateLimiter;
 use crate::services::recaptcha_service::RecaptchaVerifier;
 use crate::services::user_service::{
     AuthResponse, ChangePasswordRequest, ForgotPasswordRequest, RegisterRequest,
@@ -342,8 +343,22 @@ pub async fn change_password_api(
 )]
 pub async fn forgot_password_api(
     Extension(service): Extension<Arc<UserServiceType>>,
+    Extension(rl_email): Extension<RateLimiter>,
     Json(payload): Json<ForgotPasswordApi>,
 ) -> impl IntoResponse {
+    // Per-email rate limit (anti email-bombing). Normalized to defeat
+    // case/whitespace bypass.
+    let normalized_email = payload.email.trim().to_ascii_lowercase();
+    if !rl_email.check(&normalized_email) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(ForgotPasswordResponse {
+                message: "Too many requests".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
     let req = ForgotPasswordRequest {
         email: payload.email,
     };

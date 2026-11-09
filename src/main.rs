@@ -160,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Rate limiters (in-memory fixed window). 0 = disabled.
     let rl_forgot = RateLimiter::new(10, std::time::Duration::from_secs(3600));
+    let rl_forgot_email = RateLimiter::new(3, std::time::Duration::from_secs(3600));
     let rl_reset = RateLimiter::new(30, std::time::Duration::from_secs(3600));
     let rl_login = RateLimiter::new(30, std::time::Duration::from_secs(3600));
     let rl_register = RateLimiter::new(10, std::time::Duration::from_secs(3600));
@@ -173,6 +174,7 @@ async fn main() -> anyhow::Result<()> {
         settings_service,
         email_service,
     ));
+    let cleanup_service = user_service.clone();
     let organization_service = Arc::new(OrganizationService::new(
         organization_repo,
         group_repo.clone(),
@@ -364,6 +366,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(Extension(pool))
         .layer(Extension(recaptcha_verifier.clone()))
         .layer(Extension(recaptcha_site_key.clone()))
+        .layer(Extension(rl_forgot_email.clone()))
         .layer(from_fn(request_logging_middleware))
         .layer(from_fn(security_headers_middleware));
 
@@ -390,6 +393,21 @@ async fn main() -> anyhow::Result<()> {
         "    - User-Group: POST/DELETE /api/admin/users/{{user_id}}/groups/{{group_id}}"
     );
     tracing::info!("    - Check Permission: POST /api/admin/check-permission");
+
+    // Periodic cleanup of expired password-reset tokens (every hour). Spawned
+    // as a background task; failures are logged but never abort the server.
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        interval.tick().await; // skip the immediate tick
+        loop {
+            interval.tick().await;
+            match cleanup_service.cleanup_expired_reset_tokens().await {
+                Ok(n) if n > 0 => tracing::info!("cleaned up {} expired reset tokens", n),
+                Ok(_) => {}
+                Err(e) => tracing::warn!("reset-token cleanup failed: {}", e),
+            }
+        }
+    });
 
     axum::serve(
         listener,

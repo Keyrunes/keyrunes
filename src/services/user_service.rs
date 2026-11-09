@@ -601,7 +601,12 @@ impl<
         Ok(())
     }
 
-    /// Administrative function to change a user's password.
+    /// Run the periodic cleanup of expired password-reset tokens across every
+    /// tenant schema. Exposed so `main` can schedule it; returns the total
+    /// number of rows deleted.
+    pub async fn cleanup_expired_reset_tokens(&self) -> Result<u64> {
+        self.password_reset_repo.cleanup_expired_tokens_all().await
+    }
     pub async fn update_password(
         &self,
         req: AdminChangePasswordRequest,
