@@ -25,6 +25,9 @@ thing that makes documentation stay useful:
 | 2 | [Testing](./testing.md) | The five testing techniques used here, which question each answers, and how to run them | ~25 min |
 | 3 | [Feature specs](./features/README.md) | Locked designs for 2FA, WebAuthn and OIDC/SSO — not yet implemented | reference |
 
+**Configuring reCAPTCHA?** See [reCAPTCHA setup guide](./recaptcha-setup.md) —
+step-by-step for enabling Google reCAPTCHA on the server and sending tokens
+from the Rust and Python SDKs.
 **Just need one answer?**
 
 | I want to… | Go to |
