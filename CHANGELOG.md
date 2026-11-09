@@ -25,7 +25,7 @@ message; to change the shape, edit `cliff.toml`.
 - Fold inline security notes into rustdoc and document undocumented items
 - Cut the 0.4.2 release section with git-cliff
 - Cut the 0.4.3 release section with git-cliff
-- Add security analysis prompt and index it
+- Regenerate changelog after commit message rewrite
 
 ### 🎨 Styling
 
