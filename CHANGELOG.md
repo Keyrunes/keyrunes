@@ -11,6 +11,17 @@ message; to change the shape, edit `cliff.toml`.
 ### 🚀 Features
 
 - *(auth)* Add optional Google reCAPTCHA verification to register and login
+- *(auth)* Harden password-reset flow (atomic claim, caps, rate limit, TTL)
+
+### 🐛 Bug Fixes
+
+- *(auth)* Schedule expired reset-token cleanup and rate-limit by email
+
+### 📚 Documentation
+
+- *(changelog)* Cut the 0.4.3 release section with git-cliff
+- *(changelog)* Cut the 0.4.4 release section with git-cliff
+- Add security analysis prompt and index it
 
 ## [0.4.2] - 2026-11-04
 
