@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use crate::handler::auth::AuthenticatedUser;
 use crate::handler::errors::ErrorResponse;
+use crate::handler::rate_limit::RateLimiter;
 use crate::repository::sqlx_impl::{
     PgGroupRepository, PgOrganizationRepository, PgPasswordResetRepository, PgSettingsRepository,
     PgUserRepository,
 };
-use crate::handler::rate_limit::RateLimiter;
 use crate::services::recaptcha_service::RecaptchaVerifier;
 use crate::services::user_service::{
     AuthResponse, ChangePasswordRequest, ForgotPasswordRequest, RegisterRequest,
