@@ -1,6 +1,6 @@
 [package]
 name = "keyrunes"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 default-run = "keyrunes"
 
@@ -34,6 +34,7 @@ secrecy = { version = "0.10.3", features = ["serde"] }
 tower = "0.5"
 lettre = { version = "0.11", features = ["tokio1", "tokio1-native-tls", "smtp-transport", "builder"] }
 josekit = "0.10.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 utoipa = { version = "6.0", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-swagger-ui = { version = "10.0.2", features = ["axum"] }
 
@@ -48,3 +49,4 @@ serial_test = "4.0"
 goose = "0.18.1"
 exhaustive = "0.2.2"
 base64 = "0.23.1"
+mockito = "1.7"

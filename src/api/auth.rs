@@ -12,6 +12,7 @@ use crate::repository::sqlx_impl::{
     PgGroupRepository, PgOrganizationRepository, PgPasswordResetRepository, PgSettingsRepository,
     PgUserRepository,
 };
+use crate::services::recaptcha_service::RecaptchaVerifier;
 use crate::services::user_service::{
     AuthResponse, ChangePasswordRequest, ForgotPasswordRequest, RegisterRequest,
     ResetPasswordRequest, UserResponse, UserService,
@@ -36,6 +37,9 @@ pub struct RegisterApi {
     pub namespace: String,
     #[schema(example = "users")]
     pub group: Option<String>,
+    #[schema(example = "03AGdBq24...")]
+    #[serde(default)]
+    pub recaptcha_response: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -46,6 +50,9 @@ pub struct LoginApi {
     pub password: String,
     #[schema(example = "tenant_namespace")]
     pub namespace: String,
+    #[schema(example = "03AGdBq24...")]
+    #[serde(default)]
+    pub recaptcha_response: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -115,8 +122,22 @@ type UserServiceType = UserService<
 )]
 pub async fn register_api(
     Extension(service): Extension<Arc<UserServiceType>>,
+    Extension(recaptcha): Extension<Option<Arc<RecaptchaVerifier>>>,
     Json(payload): Json<RegisterApi>,
 ) -> impl IntoResponse {
+    if let Some(verifier) = recaptcha.as_ref() {
+        match verifier
+            .verify(payload.recaptcha_response.as_deref().unwrap_or(""), None)
+            .await
+        {
+            Ok(()) => {}
+            Err(_) => {
+                return ErrorResponse::bad_request("Captcha verification failed".to_string())
+                    .into_response();
+            }
+        }
+    }
+
     let req = RegisterRequest {
         organization_id: payload.organization_id,
         email: payload.email,
@@ -153,8 +174,22 @@ pub async fn register_api(
 )]
 pub async fn login_api(
     Extension(service): Extension<Arc<UserServiceType>>,
+    Extension(recaptcha): Extension<Option<Arc<RecaptchaVerifier>>>,
     Json(payload): Json<LoginApi>,
 ) -> impl IntoResponse {
+    if let Some(verifier) = recaptcha.as_ref() {
+        match verifier
+            .verify(payload.recaptcha_response.as_deref().unwrap_or(""), None)
+            .await
+        {
+            Ok(()) => {}
+            Err(_) => {
+                return ErrorResponse::unauthorized("Invalid credentials".to_string())
+                    .into_response();
+            }
+        }
+    }
+
     match service
         .login(payload.identity, payload.password, &payload.namespace)
         .await
@@ -448,6 +483,7 @@ mod tests {
             organization_id: None,
             namespace: "public".to_string(),
             group: None,
+            recaptcha_response: None,
         };
 
         assert_eq!(payload.email, "test@example.com");

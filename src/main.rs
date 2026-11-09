@@ -29,7 +29,7 @@ use repository::sqlx_impl::{
 };
 use services::{
     email_service::EmailService, group_service::GroupService, jwt_service::JwtService,
-    policy_service::PolicyService, user_service::UserService,
+    policy_service::PolicyService, recaptcha_service::RecaptchaVerifier, user_service::UserService,
 };
 
 use crate::api::openapi::ApiDoc;
@@ -136,6 +136,26 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
+
+    // reCAPTCHA is optional: when RECAPTCHA_SECRET_KEY is unset, verification
+    // is disabled entirely and the handlers behave exactly as before.
+    let recaptcha_secret = std::env::var("RECAPTCHA_SECRET_KEY").ok();
+    let recaptcha_site_key = std::env::var("RECAPTCHA_SITE_KEY").ok();
+    if recaptcha_secret.is_some() != recaptcha_site_key.is_some() {
+        tracing::error!(
+            "reCAPTCHA is half-configured: set BOTH RECAPTCHA_SECRET_KEY and RECAPTCHA_SITE_KEY, or neither."
+        );
+        return Err(anyhow::anyhow!(
+            "partial reCAPTCHA configuration (secret/site key mismatch)"
+        ));
+    }
+    let recaptcha_verifier = recaptcha_secret.map(RecaptchaVerifier::new);
+    let recaptcha_verifier = recaptcha_verifier.map(Arc::new);
+    if recaptcha_verifier.is_some() {
+        tracing::info!("✅ reCAPTCHA verification enabled");
+    } else {
+        tracing::info!("ℹ️  reCAPTCHA verification disabled (no secret configured)");
+    }
 
     let user_service = Arc::new(UserService::new(
         user_repo,
@@ -307,6 +327,8 @@ async fn main() -> anyhow::Result<()> {
         .layer(Extension(organization_service))
         .layer(Extension(jwt_service))
         .layer(Extension(pool))
+        .layer(Extension(recaptcha_verifier.clone()))
+        .layer(Extension(recaptcha_site_key.clone()))
         .layer(from_fn(request_logging_middleware))
         .layer(from_fn(security_headers_middleware));
 

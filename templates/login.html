@@ -18,6 +18,11 @@
     <label for="namespace">Namespace</label>
     <input id="namespace" name="namespace" type="text" value="public" required />
 
+    {% if recaptcha_site_key %}
+    <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}"></div>
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+    {% endif %}
+
     <button type="submit">Login</button>
   </form>
   <p style="margin-top: 1rem; text-align: center;">

@@ -3,6 +3,7 @@ use crate::repository::sqlx_impl::{
     PgGroupRepository, PgOrganizationRepository, PgPasswordResetRepository, PgSettingsRepository,
     PgUserRepository,
 };
+use crate::services::recaptcha_service::RecaptchaVerifier;
 use crate::services::user_service::{
     ChangePasswordRequest, RegisterRequest, UpdateProfileRequest, UserService,
 };
@@ -51,6 +52,8 @@ pub struct RegisterForm {
     pub first_login: bool,
     #[serde(default = "default_namespace")]
     pub namespace: String,
+    #[serde(default, rename = "g-recaptcha-response")]
+    pub recaptcha_response: Option<String>,
 }
 
 fn default_namespace() -> String {
@@ -62,6 +65,8 @@ pub struct LoginForm {
     pub identity: String,
     pub password: String,
     pub namespace: String,
+    #[serde(default, rename = "g-recaptcha-response")]
+    pub recaptcha_response: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -77,9 +82,15 @@ pub struct ResetPasswordQuery {
 }
 
 /// GET /register
-pub async fn register_page(Extension(tmpl): Extension<tera::Tera>) -> impl IntoResponse {
+pub async fn register_page(
+    Extension(tmpl): Extension<tera::Tera>,
+    Extension(site_key): Extension<Option<String>>,
+) -> impl IntoResponse {
     let mut ctx = Context::new();
     ctx.insert("title", "Register");
+    if let Some(key) = site_key {
+        ctx.insert("recaptcha_site_key", &key);
+    }
     let body = tmpl.render("register.html", &ctx).unwrap();
     Html(body)
 }
@@ -95,8 +106,29 @@ pub async fn register_page(Extension(tmpl): Extension<tera::Tera>) -> impl IntoR
 pub async fn register_post(
     Extension(service): Extension<Arc<UserServiceType>>,
     Extension(tmpl): Extension<tera::Tera>,
+    Extension(site_key): Extension<Option<String>>,
+    Extension(recaptcha): Extension<Option<Arc<RecaptchaVerifier>>>,
     Form(payload): Form<RegisterForm>,
 ) -> impl IntoResponse {
+    if let Some(verifier) = recaptcha.as_ref()
+        && verifier
+            .verify(payload.recaptcha_response.as_deref().unwrap_or(""), None)
+            .await
+            .is_err()
+    {
+        let mut ctx = Context::new();
+        ctx.insert("title", "Register");
+        if let Some(key) = site_key.as_ref() {
+            ctx.insert("recaptcha_site_key", key);
+        }
+        ctx.insert(
+            "error",
+            "Registration failed. Please check your data and try again.",
+        );
+        let body = tmpl.render("register.html", &ctx).unwrap();
+        return (StatusCode::BAD_REQUEST, Html(body)).into_response();
+    }
+
     let req = RegisterRequest {
         organization_id: None,
         email: payload.email,
@@ -134,6 +166,9 @@ pub async fn register_post(
             tracing::warn!("register failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Register");
+            if let Some(key) = site_key {
+                ctx.insert("recaptcha_site_key", &key);
+            }
             ctx.insert(
                 "error",
                 "Registration failed. Please check your data and try again.",
@@ -145,9 +180,15 @@ pub async fn register_post(
 }
 
 /// GET /login
-pub async fn login_page(Extension(tmpl): Extension<tera::Tera>) -> impl IntoResponse {
+pub async fn login_page(
+    Extension(tmpl): Extension<tera::Tera>,
+    Extension(site_key): Extension<Option<String>>,
+) -> impl IntoResponse {
     let mut ctx = Context::new();
     ctx.insert("title", "Login");
+    if let Some(key) = site_key {
+        ctx.insert("recaptcha_site_key", &key);
+    }
     let body = tmpl.render("login.html", &ctx).unwrap();
     Html(body)
 }
@@ -161,8 +202,26 @@ pub async fn login_page(Extension(tmpl): Extension<tera::Tera>) -> impl IntoResp
 pub async fn login_post(
     Extension(service): Extension<Arc<UserServiceType>>,
     Extension(tmpl): Extension<tera::Tera>,
+    Extension(site_key): Extension<Option<String>>,
+    Extension(recaptcha): Extension<Option<Arc<RecaptchaVerifier>>>,
     Form(payload): Form<LoginForm>,
 ) -> impl IntoResponse {
+    if let Some(verifier) = recaptcha.as_ref()
+        && verifier
+            .verify(payload.recaptcha_response.as_deref().unwrap_or(""), None)
+            .await
+            .is_err()
+    {
+        let mut ctx = Context::new();
+        ctx.insert("title", "Login");
+        if let Some(key) = site_key.as_ref() {
+            ctx.insert("recaptcha_site_key", &key);
+        }
+        ctx.insert("error", "Invalid credentials");
+        let body = tmpl.render("login.html", &ctx).unwrap();
+        return (StatusCode::UNAUTHORIZED, Html(body)).into_response();
+    }
+
     match service
         .login(payload.identity, payload.password, &payload.namespace)
         .await
@@ -190,6 +249,9 @@ pub async fn login_post(
             tracing::warn!("web login failed: {}", e);
             let mut ctx = Context::new();
             ctx.insert("title", "Login");
+            if let Some(key) = site_key {
+                ctx.insert("recaptcha_site_key", &key);
+            }
             ctx.insert("error", "Invalid credentials");
             let body = tmpl.render("login.html", &ctx).unwrap();
             (StatusCode::UNAUTHORIZED, Html(body)).into_response()

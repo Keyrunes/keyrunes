@@ -104,6 +104,7 @@ pub struct UpdateUserRequest {
     pub email: Option<String>,
     pub username: Option<String>,
     pub first_login: Option<bool>,
+    pub new_password: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -721,6 +722,23 @@ impl<
                 .set_first_login(user.user_id, first_login, namespace)
                 .await?;
             user.first_login = first_login;
+        }
+
+        if let Some(new_password) = &req.new_password {
+            if new_password.len() < crate::constants::MIN_PASSWORD_LENGTH {
+                return Err(anyhow!("new password too short"));
+            }
+            let new_password_hash = self.hash_password(new_password)?;
+            self.user_repo
+                .update_user_password(user.user_id, &new_password_hash, namespace)
+                .await?;
+            if req.first_login.is_none() {
+                // Se não especificou, força troca de senha por padrão
+                self.user_repo
+                    .set_first_login(user.user_id, true, namespace)
+                    .await?;
+                user.first_login = true;
+            }
         }
 
         let groups = self.get_user_group_names(user.user_id, namespace).await?;
