@@ -36,6 +36,10 @@ pub fn is_privileged_group(group: &str) -> bool {
 
 /// Password validation
 pub const MIN_PASSWORD_LENGTH: usize = 8;
+pub const MAX_PASSWORD_LENGTH: usize = 128;
+pub const MAX_EMAIL_LENGTH: usize = 254;
+pub const MAX_USERNAME_LENGTH: usize = 64;
+pub const MAX_IDENTITY_LENGTH: usize = 254;
 
 /// Minimum accepted length for a `JWT_SECRET`.
 ///

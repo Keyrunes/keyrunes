@@ -264,13 +264,18 @@ pub trait PasswordResetRepository: Send + Sync + 'static {
         token: NewPasswordResetToken,
         namespace: &str,
     ) -> Result<PasswordResetToken>;
-    async fn find_valid_token(
+    /// Atomically consume the token and update the user's password in a single
+    /// statement. Returns `Some(user_id)` on success, `None` when the token is
+    /// unknown, expired or already used.
+    async fn reset_password_atomic(
         &self,
         token: &str,
+        password_hash: &str,
         namespace: &str,
-    ) -> Result<Option<PasswordResetToken>>;
-    async fn mark_token_used(&self, token_id: i64, namespace: &str) -> Result<()>;
+    ) -> Result<Option<i64>>;
+    async fn invalidate_user_tokens(&self, user_id: i64, namespace: &str) -> Result<u64>;
     async fn cleanup_expired_tokens(&self, namespace: &str) -> Result<()>;
+    async fn cleanup_expired_tokens_all(&self) -> Result<u64>;
 }
 
 #[derive(sqlx::FromRow, Debug, Clone)]

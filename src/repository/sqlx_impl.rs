@@ -998,43 +998,50 @@ impl PasswordResetRepository for PgPasswordResetRepository {
         Ok(rec)
     }
 
-    async fn find_valid_token(
+    async fn reset_password_atomic(
         &self,
+        password_hash: &str,
         token: &str,
         namespace: &str,
-    ) -> Result<Option<PasswordResetToken>> {
+    ) -> Result<Option<i64>> {
         let mut tx = self.pool.begin().await?;
         sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
-        let rec = sqlx::query_as!(
-            PasswordResetToken,
-            r#"SELECT token_id, user_id, token, expires_at, used_at, created_at 
-               FROM password_reset_tokens 
-               WHERE token = $1 AND expires_at > now() AND used_at IS NULL"#,
-            token
+        let user_id: Option<i64> = sqlx::query_scalar(
+            r#"WITH claimed AS (
+                UPDATE password_reset_tokens SET used_at = now()
+                WHERE token = $2 AND used_at IS NULL AND expires_at > now()
+                RETURNING user_id
+            )
+            UPDATE users u SET password_hash = $1, updated_at = now()
+            FROM claimed c WHERE u.user_id = c.user_id
+            RETURNING u.user_id"#,
         )
+        .bind(password_hash)
+        .bind(token)
         .fetch_optional(&mut *tx)
         .await?;
+
         tx.commit().await?;
-        Ok(rec)
+        Ok(user_id)
     }
 
-    async fn mark_token_used(&self, token_id: i64, namespace: &str) -> Result<()> {
+    async fn invalidate_user_tokens(&self, user_id: i64, namespace: &str) -> Result<u64> {
         let mut tx = self.pool.begin().await?;
         sqlx::query(set_search_path_sql(namespace))
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query!(
-            "UPDATE password_reset_tokens SET used_at = now() WHERE token_id = $1",
-            token_id
+        let res = sqlx::query(
+            "UPDATE password_reset_tokens SET used_at = now() WHERE user_id = $1 AND used_at IS NULL",
         )
+        .bind(user_id)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(res.rows_affected())
     }
 
     async fn cleanup_expired_tokens(&self, namespace: &str) -> Result<()> {
@@ -1043,11 +1050,29 @@ impl PasswordResetRepository for PgPasswordResetRepository {
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query!("DELETE FROM password_reset_tokens WHERE expires_at < now()")
+        sqlx::query("DELETE FROM password_reset_tokens WHERE expires_at < now()")
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn cleanup_expired_tokens_all(&self) -> Result<u64> {
+        // Discover every schema that actually has the table (including `public`,
+        // the default namespace), so multi-tenant cleanup never skips one.
+        let schemas: Vec<String> = sqlx::query_scalar(
+            "SELECT table_schema FROM information_schema.tables              WHERE table_name = 'password_reset_tokens'                AND table_schema NOT LIKE 'pg_%'                AND table_schema <> 'information_schema'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut total: u64 = 0;
+        for schema in schemas {
+            if let Ok(()) = self.cleanup_expired_tokens(&schema).await {
+                total += 1;
+            }
+        }
+        Ok(total)
     }
 }
 

@@ -125,6 +125,13 @@ pub async fn register_api(
     Extension(recaptcha): Extension<Option<Arc<RecaptchaVerifier>>>,
     Json(payload): Json<RegisterApi>,
 ) -> impl IntoResponse {
+    if payload.email.len() > crate::constants::MAX_EMAIL_LENGTH
+        || payload.username.len() > crate::constants::MAX_USERNAME_LENGTH
+        || payload.password.len() > crate::constants::MAX_PASSWORD_LENGTH
+    {
+        return ErrorResponse::bad_request("input too long".to_string()).into_response();
+    }
+
     if let Some(verifier) = recaptcha.as_ref() {
         match verifier
             .verify(payload.recaptcha_response.as_deref().unwrap_or(""), None)
@@ -177,6 +184,12 @@ pub async fn login_api(
     Extension(recaptcha): Extension<Option<Arc<RecaptchaVerifier>>>,
     Json(payload): Json<LoginApi>,
 ) -> impl IntoResponse {
+    if payload.identity.len() > crate::constants::MAX_IDENTITY_LENGTH
+        || payload.password.len() > crate::constants::MAX_PASSWORD_LENGTH
+    {
+        return ErrorResponse::bad_request("input too long".to_string()).into_response();
+    }
+
     if let Some(verifier) = recaptcha.as_ref() {
         match verifier
             .verify(payload.recaptcha_response.as_deref().unwrap_or(""), None)

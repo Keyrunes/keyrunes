@@ -14,6 +14,9 @@ impl TryFrom<&str> for Email {
     /// Accepts the shape `^[\w.+-]+@[\w-]+\.[\w.-]+$` and stores the address
     /// verbatim; anything else is rejected.
     fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value.len() > crate::constants::MAX_EMAIL_LENGTH {
+            anyhow::bail!("email too long");
+        }
         let email_re = Regex::new(r"^[\w.+-]+@[\w-]+\.[\w.-]+$").unwrap();
         if !email_re.is_match(value) {
             anyhow::bail!("invalid email");
@@ -55,6 +58,9 @@ impl TryFrom<&str> for Password {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         if value.len() < crate::constants::MIN_PASSWORD_LENGTH {
             anyhow::bail!("password too short");
+        }
+        if value.len() > crate::constants::MAX_PASSWORD_LENGTH {
+            anyhow::bail!("password too long");
         }
 
         Ok(Self(SecretString::from(value)))

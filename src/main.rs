@@ -19,6 +19,7 @@ use keyrunes::handler::errors::handler_404;
 use keyrunes::handler::logging::{
     LogLevel, init_logging, request_logging_middleware, security_headers_middleware,
 };
+use keyrunes::handler::rate_limit::{RateLimiter, rate_limit_middleware};
 
 use keyrunes::repository::sqlx_impl::PgOrganizationRepository;
 use keyrunes::repository::sqlx_impl::PgSettingsRepository;
@@ -157,6 +158,12 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("ℹ️  reCAPTCHA verification disabled (no secret configured)");
     }
 
+    // Rate limiters (in-memory fixed window). 0 = disabled.
+    let rl_forgot = RateLimiter::new(10, std::time::Duration::from_secs(3600));
+    let rl_reset = RateLimiter::new(30, std::time::Duration::from_secs(3600));
+    let rl_login = RateLimiter::new(30, std::time::Duration::from_secs(3600));
+    let rl_register = RateLimiter::new(10, std::time::Duration::from_secs(3600));
+
     let user_service = Arc::new(UserService::new(
         user_repo,
         group_repo.clone(),
@@ -184,16 +191,44 @@ async fn main() -> anyhow::Result<()> {
             "/register",
             get(views::auth::register_page).post(views::auth::register_post),
         )
-        .route("/api/register", post(api::auth::register_api))
-        .route("/api/login", post(api::auth::login_api))
+        .route(
+            "/api/register",
+            post(api::auth::register_api).layer(axum::middleware::from_fn(move |req, next| {
+                let l = rl_register.clone();
+                async move { rate_limit_middleware(l, req, next).await }
+            })),
+        )
+        .route(
+            "/api/login",
+            post(api::auth::login_api).layer(axum::middleware::from_fn(move |req, next| {
+                let l = rl_login.clone();
+                async move { rate_limit_middleware(l, req, next).await }
+            })),
+        )
         .route(
             "/login",
             get(views::auth::login_page).post(views::auth::login_post),
         )
         .route("/forgot-password", get(views::auth::forgot_password_page))
-        .route("/api/forgot-password", post(api::auth::forgot_password_api))
+        .route(
+            "/api/forgot-password",
+            post(api::auth::forgot_password_api).layer(axum::middleware::from_fn(
+                move |req, next| {
+                    let l = rl_forgot.clone();
+                    async move { rate_limit_middleware(l, req, next).await }
+                },
+            )),
+        )
         .route("/reset-password", get(views::auth::reset_password_page))
-        .route("/api/reset-password", post(api::auth::reset_password_api))
+        .route(
+            "/api/reset-password",
+            post(api::auth::reset_password_api).layer(axum::middleware::from_fn(
+                move |req, next| {
+                    let l = rl_reset.clone();
+                    async move { rate_limit_middleware(l, req, next).await }
+                },
+            )),
+        )
         .nest_service("/static", ServeDir::new("./static"));
 
     let protected_web_router = Router::new()
@@ -356,7 +391,12 @@ async fn main() -> anyhow::Result<()> {
     );
     tracing::info!("    - Check Permission: POST /api/admin/check-permission");
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .unwrap();
 
     Ok(())
 }

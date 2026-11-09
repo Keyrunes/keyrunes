@@ -901,18 +901,26 @@ mod tests {
                 created_at: chrono::Utc::now(),
             })
         }
-        async fn find_valid_token(
+        async fn reset_password_atomic(
             &self,
+            _password_hash: &str,
             _token: &str,
             _namespace: &str,
-        ) -> anyhow::Result<Option<PasswordResetToken>> {
+        ) -> anyhow::Result<Option<i64>> {
             Ok(None)
         }
-        async fn mark_token_used(&self, _token_id: i64, _namespace: &str) -> anyhow::Result<()> {
-            Ok(())
+        async fn invalidate_user_tokens(
+            &self,
+            _user_id: i64,
+            _namespace: &str,
+        ) -> anyhow::Result<u64> {
+            Ok(0)
         }
         async fn cleanup_expired_tokens(&self, _namespace: &str) -> anyhow::Result<()> {
             Ok(())
+        }
+        async fn cleanup_expired_tokens_all(&self) -> anyhow::Result<u64> {
+            Ok(0)
         }
     }
 

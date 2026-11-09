@@ -134,6 +134,7 @@ pub struct UserService<
     #[allow(dead_code)]
     pub settings_service: Arc<SettingsService<S>>,
     pub email_service: Option<Arc<EmailService>>,
+    pub dev_reset_in_log: bool,
 }
 
 impl<
@@ -162,7 +163,31 @@ impl<
             jwt_service,
             settings_service,
             email_service,
+            dev_reset_in_log: std::env::var("KEYRUNES_DEV_RESET_IN_LOG")
+                .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+                .unwrap_or(false),
         }
+    }
+
+    /// Resolve the password-reset token TTL in hours.
+    ///
+    /// Precedence: SettingsService (`PASSWORD_RESET_TOKEN_TTL_HOURS`) ->
+    /// env var `PASSWORD_RESET_TOKEN_TTL_HOURS` -> default 1h. Clamped to
+    /// `1..=24` so a misconfiguration cannot disable expiry or set a huge
+    /// window.
+    pub async fn reset_token_ttl_hours(&self) -> u32 {
+        let raw = self
+            .settings_service
+            .get_setting_by_key_and_org("PASSWORD_RESET_TOKEN_TTL_HOURS", None, "public")
+            .await
+            .ok()
+            .flatten()
+            .map(|s| s.value)
+            .or_else(|| std::env::var("PASSWORD_RESET_TOKEN_TTL_HOURS").ok())
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .unwrap_or(1);
+        let clamped = raw.clamp(1, 24);
+        clamped as u32
     }
 
     /// Creates a new user in the system.
@@ -493,8 +518,15 @@ impl<
             .await?
             .ok_or_else(|| anyhow!("email not found"))?;
 
+        // Invalidate any previously issued, unused tokens for this user.
+        let _ = self
+            .password_reset_repo
+            .invalidate_user_tokens(user.user_id, namespace)
+            .await;
+
         let token = self.generate_reset_token()?;
-        let expires_at = Utc::now() + Duration::hours(24);
+        let ttl_hours = self.reset_token_ttl_hours().await;
+        let expires_at = Utc::now() + Duration::hours(ttl_hours as i64);
 
         let reset_token = NewPasswordResetToken {
             user_id: user.user_id,
@@ -528,11 +560,17 @@ impl<
                 _ => "http://localhost:3000".to_string(),
             };
 
-            let reset_link = format!("{}/reset-password?forgot_password={}", base_url, token);
-            tracing::warn!(
-                "⚠️ Email service not configured. Reset Link: {}",
-                reset_link
-            );
+            if self.dev_reset_in_log {
+                let reset_link = format!("{}/reset-password?forgot_password={}", base_url, token);
+                tracing::warn!(
+                    "⚠️ Email service not configured. Reset Link: {}",
+                    reset_link
+                );
+            } else {
+                tracing::warn!(
+                    "⚠️ Email service not configured. Password reset token issued (not logged). Use POST /api/admin/send_password_reset_email to deliver it."
+                );
+            }
         }
 
         Ok(token)
@@ -540,25 +578,26 @@ impl<
 
     /// Resets a user's password given a valid reset token.
     pub async fn reset_password(&self, req: ResetPasswordRequest, namespace: &str) -> Result<()> {
-        let reset_token = self
-            .password_reset_repo
-            .find_valid_token(&req.token, namespace)
-            .await?
-            .ok_or_else(|| anyhow!("invalid or expired reset token"))?;
-
+        // Pre-validate format and password BEFORE touching Argon2 or the DB,
+        // so malformed/short inputs cannot burn CPU or allocate.
+        if req.token.len() != 64 || !req.token.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(anyhow!("invalid or expired reset token"));
+        }
         if req.new_password.len() < crate::constants::MIN_PASSWORD_LENGTH {
             return Err(anyhow!("new password too short"));
         }
+        if req.new_password.len() > crate::constants::MAX_PASSWORD_LENGTH {
+            return Err(anyhow!("new password too long"));
+        }
 
         let new_password_hash = self.hash_password(&req.new_password)?;
-        self.user_repo
-            .update_user_password(reset_token.user_id, &new_password_hash, namespace)
+        let consumed = self
+            .password_reset_repo
+            .reset_password_atomic(&new_password_hash, &req.token, namespace)
             .await?;
-
-        self.password_reset_repo
-            .mark_token_used(reset_token.token_id, namespace)
-            .await?;
-
+        if consumed.is_none() {
+            return Err(anyhow!("invalid or expired reset token"));
+        }
         Ok(())
     }
 
@@ -1187,18 +1226,22 @@ mod tests {
         ) -> Result<crate::repository::PasswordResetToken> {
             unimplemented!()
         }
-        async fn find_valid_token(
+        async fn reset_password_atomic(
             &self,
+            _password_hash: &str,
             _token: &str,
             _namespace: &str,
-        ) -> Result<Option<crate::repository::PasswordResetToken>> {
+        ) -> Result<Option<i64>> {
             Ok(None)
         }
-        async fn mark_token_used(&self, _token_id: i64, _namespace: &str) -> Result<()> {
-            Ok(())
+        async fn invalidate_user_tokens(&self, _user_id: i64, _namespace: &str) -> Result<u64> {
+            Ok(0)
         }
         async fn cleanup_expired_tokens(&self, _namespace: &str) -> Result<()> {
             Ok(())
+        }
+        async fn cleanup_expired_tokens_all(&self) -> Result<u64> {
+            Ok(0)
         }
     }
 
