@@ -20,6 +20,15 @@ ignore = [
     "RUSTSEC-2026-0367",
     "RUSTSEC-2026-0368",
     "RUSTSEC-2026-0369",
+
+    # libsqlite3-sys: RUSTSEC-2026-0459 (6.8 medium) — bundled C SQLite CVE-2026-119375.
+    # Fix: libsqlite3-sys >= 0.39.0, but sqlx-sqlite 0.9.0 pins it to "=0.37.0" and
+    # there is no newer sqlx release yet. Not reachable: KeyRunes enables only the
+    # `postgres` driver on sqlx (no `sqlite` feature), so sqlx-sqlite and its bundled
+    # C SQLite are never compiled or linked — the crate is a lockfile-only transitive
+    # pulled in by the sqlx meta-crate. Re-check: 2026-12-12 — drop once sqlx ships a
+    # sqlx-sqlite that uses libsqlite3-sys >= 0.39.0.
+    "RUSTSEC-2026-0459",
 ]
 
 # spin yanked warning: 0.9.8 yanked but still pulled in by lazy_static 1.5.0 and flume 0.11.x.
