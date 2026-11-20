@@ -1,26 +1,5 @@
 [advisories]
 ignore = [
-    # sqlx: TLS certificate verification disabled in debug builds (intentional for local dev)
-    "RUSTSEC-2023-0071",
-
-    # scc: RUSTSEC-2026-0205 — unsoundness in Array::insert if compare fn panics.
-    # Fix available in scc >= 3.8.4, but serial_test 3.4.0 pins scc = "2" (not yet stable).
-    # KeyRunes does not use scc directly; only via serial_test dev-dependency.
-    # Re-check: 2026-10-14 (90 days) — remove if serial_test 3.x stable.
-    "RUSTSEC-2026-0205",
-
-    # zip: RUSTSEC-2026-0367 (7.3 high), -0368, -0369 (9.1 critical) — unsafe
-    # ZipArchive::extract()/ZipStreamReader::extract() (SUID/SGID preservation,
-    # symlink traversal, permissions applied through symlinks). Fix: zip >= 9.0.0.
-    # Not reachable: zip is a BUILD-dependency of utoipa-swagger-ui 9.0.2, used
-    # only at build time to unpack the bundled, trusted Swagger UI archive — never
-    # runtime, never attacker-controlled input. No release of utoipa-swagger-ui
-    # pulls zip >= 9.0.0 yet (10.0.1 still uses zip 8.6.0, also < 9).
-    # Re-check: 2026-11-18 — drop once utoipa-swagger-ui ships zip >= 9.0.0.
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
-
     # libsqlite3-sys: RUSTSEC-2026-0459 (6.8 medium) — bundled C SQLite CVE-2026-119375.
     # Fix: libsqlite3-sys >= 0.39.0, but sqlx-sqlite 0.9.0 pins it to "=0.37.0" and
     # there is no newer sqlx release yet. Not reachable: KeyRunes enables only the
